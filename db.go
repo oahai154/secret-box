@@ -5,10 +5,18 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
+
+// sqliteDSN 返回指定路径的 SQLite DSN(WAL + 外键)。
+func sqliteDSN(dbPath string) string {
+	return "file:" + filepath.ToSlash(dbPath) + "?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)"
+}
 
 // Item 条目(读列表时不含明文;单独读取时填充 Value)。
 type Item struct {
@@ -32,19 +40,32 @@ type Version struct {
 
 // App 持有数据库句柄与运行时元信息盐值。
 type App struct {
-	db   *sql.DB
-	salt []byte // 主密码派生密钥所用盐值,从 meta 表读取
+	db     *sql.DB
+	dbPath string   // 当前数据库文件路径
+	salt   []byte   // 主密码派生密钥所用盐值,从 meta 表读取
 }
 
 // NewApp 打开或创建数据库文件,必要时初始化表与 meta 盐值。
 func NewApp(dbPath string) (*App, error) {
-	a := &App{}
-	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
+	a := &App{dbPath: dbPath}
+	db, err := sql.Open("sqlite", sqliteDSN(dbPath))
 	if err != nil {
 		return nil, err
 	}
+	if err := initTables(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	a.db = db
+	if err := a.reloadSalt(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return a, nil
+}
 
+// initTables 建表(独立于构造函数,迁移重开后复用)。
+func initTables(db *sql.DB) error {
 	queries := []string{
 		`CREATE TABLE IF NOT EXISTS meta (
 			key TEXT PRIMARY KEY,
@@ -69,25 +90,29 @@ func NewApp(dbPath string) (*App, error) {
 	}
 	for _, q := range queries {
 		if _, err := db.Exec(q); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	// 读取或生成盐值
-	row := db.QueryRow(`SELECT value FROM meta WHERE key='salt'`)
+	return nil
+}
+
+// reloadSalt 从 meta 表重新读取盐值。
+func (a *App) reloadSalt() error {
+	row := a.db.QueryRow(`SELECT value FROM meta WHERE key='salt'`)
 	var enc string
 	switch err := row.Scan(&enc); err {
 	case sql.ErrNoRows:
-		// 生成盐值交给加密层;这里先占位,由设置主密码时写入
 		a.salt = nil
 	case nil:
-		a.salt, err = base64.StdEncoding.DecodeString(enc)
+		s, err := base64.StdEncoding.DecodeString(enc)
 		if err != nil {
-			return nil, err
+			return err
 		}
+		a.salt = s
 	default:
-		return nil, err
+		return err
 	}
-	return a, nil
+	return nil
 }
 
 func nowISO() string { return time.Now().Format(time.RFC3339) }
@@ -275,6 +300,69 @@ func (a *App) getAnyEncrypted() string {
 		_ = a.db.QueryRow(`SELECT encrypted_snapshot FROM secret_versions LIMIT 1`).Scan(&enc)
 	}
 	return enc
+}
+
+// MigrateFrom 将 srcPath 的数据库迁移(合并为一致快照)到当前 dbPath。
+// 用于把旧位置(exe 同目录)的库搬到用户目录,防止数据丢失。
+func (a *App) MigrateFrom(srcPath string) error {
+	srcClean := filepath.Clean(srcPath)
+	dstClean := filepath.Clean(a.dbPath)
+	if srcClean == dstClean {
+		return errors.New("源路径与目标路径相同")
+	}
+	if _, err := os.Stat(srcPath); err != nil {
+		return errors.New("找不到源数据库: " + srcPath)
+	}
+
+	// 1. 生成 VACUUM INTO 的目标临时文件(包含 WAL 中未合并的数据,得到单文件一致快照)
+	tmp, err := os.CreateTemp(filepath.Dir(dstClean), ".migrate-*.db")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	tmp.Close() // VACUUM INTO 要求目标不存在,先释放句柄再删除
+
+	openTmp := func() error {
+		os.Remove(tmpPath)
+		srcDB, err := sql.Open("sqlite", "file:"+filepath.ToSlash(srcPath)+"?mode=ro")
+		if err != nil {
+			return err
+		}
+		defer srcDB.Close()
+		_, err = srcDB.Exec(`VACUUM INTO '` + strings.ReplaceAll(filepath.ToSlash(tmpPath), "'", "''") + `'`)
+		return err
+	}
+	if err := openTmp(); err != nil {
+		os.Remove(tmpPath)
+		return errors.New("生成快照失败: " + err.Error())
+	}
+
+	// 2. 关闭当前连接
+	if a.db != nil {
+		a.db.Close()
+		a.db = nil
+	}
+
+	// 3. 替换目标(先删除旧文件与 WAL/SHM 伴生文件)
+	for _, p := range []string{dstClean, dstClean + "-wal", dstClean + "-shm"} {
+		os.Remove(p)
+	}
+	if err := os.Rename(tmpPath, dstClean); err != nil {
+		os.Remove(tmpPath)
+		return errors.New("替换失败: " + err.Error())
+	}
+
+	// 4. 重开连接并刷新盐值
+	db, err := sql.Open("sqlite", sqliteDSN(dstClean))
+	if err != nil {
+		return err
+	}
+	if err := initTables(db); err != nil {
+		os.Remove(srcClean)
+		return err
+	}
+	a.db = db
+	return a.reloadSalt()
 }
 
 // Close 关闭数据库。

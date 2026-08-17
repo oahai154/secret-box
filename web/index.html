@@ -28,6 +28,7 @@
         <span>SecretBox</span>
       </div>
       <div class="topbar-actions">
+        <button id="dbBtn" class="btn btn-ghost btn-sm" title="数据库位置与状态">🗄 数据</button>
         <div class="theme-switch" id="themeSwitch" role="group" aria-label="主题切换">
           <button class="theme-opt" data-theme-opt="system" title="跟随系统">
             <span class="ico">◐</span><span class="label">系统</span>
@@ -100,6 +101,22 @@
   </div>
 
   <div id="toast" class="toast hidden"></div>
+
+  <!-- ===== 数据库信息与迁移弹窗 ===== -->
+  <div id="dbModal" class="modal-mask hidden">
+    <div class="modal card-db">
+      <h2 class="modal-title">数据库</h2>
+      <div id="dbInfo" class="db-info"></div>
+      <div id="dbMigrate" class="db-migrate hidden">
+        <div class="migrate-warn">检测到旧版本的数据库。将其迁移到统一的数据目录,可避免因 exe 位置变化导致数据丢失。</div>
+        <button id="migrateBtn" class="btn btn-primary">迁移数据库</button>
+      </div>
+      <div class="modal-actions">
+        <button id="dbCloseBtn" class="btn btn-ghost">关闭</button>
+      </div>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>

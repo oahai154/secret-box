@@ -21,37 +21,48 @@ import (
 var webFS embed.FS
 
 func main() {
-	port := flag.Int("port", 8080, "监听端口")
-	dbPath := flag.String("db", "", "数据库文件路径(默认:可执行文件同目录 secretbox.db)")
+	port := flag.Int("port", 0, "监听端口(0=自动探测空闲端口,默认从 8080 起)")
+	dbFlag := flag.String("db", "", "数据库文件路径(默认:用户数据目录 SecretBox/secretbox.db)")
 	noOpen := flag.Bool("no-open", false, "不自动打开浏览器")
 	flag.Parse()
 
-	// 数据库路径:默认放在可执行文件同目录,便于单文件分发
-	if *dbPath == "" {
-		exe, err := os.Executable()
-		if err != nil {
-			exe = "."
-		}
-		*dbPath = filepath.Join(filepath.Dir(exe), "secretbox.db")
+	// 数据库路径:默认放到用户数据目录,保证 exe 无论放哪都能找到数据
+	dbPath := *dbFlag
+	if dbPath == "" {
+		dbPath = defaultDBPath()
 	}
 
-	app, err := NewApp(*dbPath)
+	// 若工作目录存在旧版遗留库(与 exe 同目录 secretbox.db),作为"可迁移源"上报前端
+	legacyPath := ""
+	if exe, err := os.Executable(); err == nil {
+		legacy := filepath.Join(filepath.Dir(exe), "secretbox.db")
+		if _, statErr := os.Stat(legacy); statErr == nil {
+			legacyPath = legacy
+		}
+	}
+
+	// 确保数据目录存在后再打开数据库
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
+		log.Fatalf("创建数据目录失败: %v", err)
+	}
+
+	app, err := NewApp(dbPath)
 	if err != nil {
 		log.Fatalf("数据库初始化失败: %v", err)
 	}
 	defer app.Close()
 
-	srv := newServer(app)
+	srv := newServer(app, dbPath, legacyPath)
 	handler := staticHandler(srv.routes())
 
-	// 监听 127.0.0.1,仅本机访问
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", *port))
+	// 端口:0 表示自动探测。先尝试指定端口(默认从 8080 起),占用则向上递增到空闲。
+	ln, err := listen(port)
 	if err != nil {
-		log.Fatalf("监听端口失败: %v", err)
+		log.Fatalf("无可用端口: %v", err)
 	}
 	addr := ln.Addr().(*net.TCPAddr)
 	webURL := fmt.Sprintf("http://127.0.0.1:%d", addr.Port)
-	log.Printf("SecretBox 已启动: %s   (数据库: %s)", webURL, *dbPath)
+	log.Printf("SecretBox 已启动: %s   (数据库: %s)", webURL, dbPath)
 
 	if !*noOpen {
 		go func() {
@@ -80,6 +91,49 @@ func staticHandler(api http.Handler) http.Handler {
 		}
 		fileServer.ServeHTTP(w, r)
 	})
+}
+
+// defaultDBPath 返回跨平台的用户数据目录下的数据库路径。
+// Windows: %LOCALAPPDATA%\SecretBox; macOS: ~/Library/Application Support;
+// Linux: ~/.local/share。保证无论 exe 放哪,数据始终落在用户固定位置。
+func defaultDBPath() string {
+	dir := ""
+	for _, p := range []string{os.Getenv("LOCALAPPDATA"), os.Getenv("XDG_DATA_HOME"), os.Getenv("APPDATA")} {
+		if p != "" {
+			dir = p
+			break
+		}
+	}
+	if dir == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			switch runtime.GOOS {
+			case "darwin":
+				dir = filepath.Join(home, "Library", "Application Support")
+			default:
+				dir = filepath.Join(home, ".local", "share")
+			}
+		}
+	}
+	if dir == "" {
+		dir = "."
+	}
+	return filepath.Join(dir, "SecretBox", "secretbox.db")
+}
+
+// listen 自动选择一个空闲端口监听 127.0.0.1。
+// port <= 0 时从 8080 起向上探测;port > 0 时先尝试指定端口,被占用则递增。
+func listen(port *int) (net.Listener, error) {
+	start := *port
+	if start <= 0 {
+		start = 8080
+	}
+	for p := start; p < start+200; p++ {
+		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p))
+		if err == nil {
+			return ln, nil
+		}
+	}
+	return nil, fmt.Errorf("端口 %d-%d 均不可用", start, start+199)
 }
 
 // openBrowser 跨平台打开默认浏览器。

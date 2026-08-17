@@ -9,6 +9,8 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -17,12 +19,17 @@ const tokenBytes = 32
 
 // Server 持有 App 引用与当前内存密钥/会话 token。
 type Server struct {
-	app   *App
-	key   []byte // 解锁后的派生密钥,仅存内存
-	token string // 当前会话 token(空表示未解锁)
+	app        *App
+	key        []byte // 解锁后的派生密钥,仅存内存
+	token      string // 当前会话 token(空表示未解锁)
+	dbPath     string // 当前数据库文件路径
+	legacyPath string // 旧版遗留库路径(可能为空,来自 exe 同目录)
 }
 
-func newServer(app *App) *Server { return &Server{app: app} }
+// newServer 构造服务,记录数据库路径与可选遗留库路径。
+func newServer(app *App, dbPath, legacyPath string) *Server {
+	return &Server{app: app, dbPath: dbPath, legacyPath: legacyPath}
+}
 
 // writeJSON 统一 JSON 响应。
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -62,6 +69,69 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"has_password": s.app.HasMasterPassword(),
 		"unlocked":     s.token != "",
+	})
+}
+
+// handleDBInfo GET /api/db-info
+// 返回数据库位置、状态与是否存在可迁移的遗留库。
+func (s *Server) handleDBInfo(w http.ResponseWriter, r *http.Request) {
+	legacyInfo := map[string]any{"path": "", "exists": false, "size": 0, "has_password": false}
+	if s.legacyPath != "" {
+		fi, err := os.Stat(s.legacyPath)
+		exists := err == nil
+		size := int64(0)
+		if exists {
+			size = fi.Size()
+		}
+		// 遗留库是否已设置主密码(通过独立只读连接查询)
+		lp := false
+		if exists {
+			lp = probeHasPassword(s.legacyPath)
+		}
+		legacyInfo = map[string]any{"path": s.legacyPath, "exists": exists, "size": size, "has_password": lp}
+	}
+
+	fi, _ := os.Stat(s.dbPath)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"db_path":        s.dbPath,
+		"db_exists":      fi != nil,
+		"db_size":        func() int64 { if fi != nil { return fi.Size() }; return 0 }(),
+		"has_password":   s.app.HasMasterPassword(),
+		"legacy":         legacyInfo,
+		"can_migrate":    s.legacyPath != "",
+	})
+}
+
+// probeHasPassword 只读打开指定库并判断是否已设主密码。
+func probeHasPassword(path string) bool {
+	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?mode=ro")
+	if err != nil {
+		return false
+	}
+	defer db.Close()
+	var n int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM meta WHERE key='salt'`).Scan(&n)
+	return n > 0
+}
+
+// handleMigrate POST /api/db/migrate
+// 将遗留库迁移到当前数据库位置。迁移后需用原主密码重新解锁。
+func (s *Server) handleMigrate(w http.ResponseWriter, r *http.Request) {
+	if s.legacyPath == "" {
+		writeErr(w, http.StatusBadRequest, "未发现可迁移的数据库")
+		return
+	}
+	if err := s.app.MigrateFrom(s.legacyPath); err != nil {
+		writeErr(w, http.StatusInternalServerError, "迁移失败: "+err.Error())
+		return
+	}
+	// 迁移后数据被替换,弃用旧会话与密钥,前端需重新解锁
+	zeroKey()
+	s.key = nil
+	s.token = ""
+	writeJSON(w, http.StatusOK, map[string]any{
+		"migrated": true,
+		"db_path":  s.dbPath,
 	})
 }
 
@@ -288,6 +358,8 @@ func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /api/status", s.handleStatus)
+	mux.HandleFunc("GET /api/db-info", s.handleDBInfo)
+	mux.HandleFunc("POST /api/db/migrate", s.handleMigrate)
 	mux.HandleFunc("POST /api/setup-password", s.handleSetupPassword)
 	mux.HandleFunc("POST /api/unlock", s.handleUnlock)
 	mux.HandleFunc("POST /api/lock", s.requireAuth(s.handleLock))
