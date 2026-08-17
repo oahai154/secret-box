@@ -8,6 +8,127 @@
   let items = [];
   let valueVisible = false;
 
+  // ---------- Settings ----------
+  let settings = {
+    auto_lock_seconds: '120',
+    delete_requires_password: 'true',
+    delete_version_requires_password: 'true',
+  };
+  let autoLockTimer = null;
+  let pendingDeleteAction = null; // { type: 'item'|'version', id, version? }
+
+  async function loadSettings() {
+    try {
+      const s = await api('GET', '/api/settings');
+      Object.assign(settings, s);
+    } catch (_e) { /* 使用默认值 */ }
+  }
+
+  async function saveSettings(updates) {
+    Object.assign(settings, updates);
+    try {
+      await api('PUT', '/api/settings', updates);
+    } catch (e) {
+      toast('保存设置失败: ' + e.message, 'err');
+    }
+    resetAutoLockTimer();
+  }
+
+  // ---------- Auto Lock Timer ----------
+  function resetAutoLockTimer() {
+    clearTimeout(autoLockTimer);
+    const secs = parseInt(settings.auto_lock_seconds, 10);
+    if (secs > 0) {
+      autoLockTimer = setTimeout(() => {
+        toast('长时间无操作,已自动锁定');
+        lock();
+      }, secs * 1000);
+    }
+  }
+
+  function resetActivityTimer() {
+    if (token) resetAutoLockTimer();
+  }
+
+  // ---------- Password Verify Modal ----------
+  function openVerifyModal(action) {
+    pendingDeleteAction = action;
+    $('#verifyPasswordInput').value = '';
+    $('#verifyError').textContent = '';
+    if (action.type === 'item') {
+      $('#verifyHint').textContent = '删除条目需要验证主密码';
+    } else {
+      $('#verifyHint').textContent = '删除历史版本需要验证主密码';
+    }
+    $('#verifyPasswordModal').classList.remove('hidden');
+    setTimeout(() => $('#verifyPasswordInput').focus(), 100);
+  }
+
+  async function confirmVerify() {
+    const pw = $('#verifyPasswordInput').value;
+    if (!pw) { $('#verifyError').textContent = '请输入密码'; return; }
+    try {
+      // 验证密码:尝试解锁
+      const data = await api('POST', '/api/unlock', { password: pw });
+      token = data.token;
+      resetAutoLockTimer();
+      $('#verifyPasswordModal').classList.add('hidden');
+      // 执行待处理的删除操作
+      if (pendingDeleteAction) {
+        if (pendingDeleteAction.type === 'item') {
+          await doDeleteItem();
+        } else {
+          await doDeleteVersion(pendingDeleteAction.id, pendingDeleteAction.version);
+        }
+        pendingDeleteAction = null;
+      }
+    } catch (e) {
+      $('#verifyError').textContent = '密码不正确';
+    }
+  }
+
+  // ---------- Change Password ----------
+  function openChangePasswordModal() {
+    $('#oldPasswordInput').value = '';
+    $('#newPasswordInput').value = '';
+    $('#confirmPasswordInput').value = '';
+    $('#passwordError').textContent = '';
+    $('#settingsModal').classList.add('hidden');
+    $('#changePasswordModal').classList.remove('hidden');
+    setTimeout(() => $('#oldPasswordInput').focus(), 100);
+  }
+
+  async function confirmChangePassword() {
+    const oldPw = $('#oldPasswordInput').value;
+    const newPw = $('#newPasswordInput').value;
+    const confirmPw = $('#confirmPasswordInput').value;
+    $('#passwordError').textContent = '';
+
+    if (!oldPw) { $('#passwordError').textContent = '请输入当前密码'; return; }
+    if (newPw.length < 4) { $('#passwordError').textContent = '新密码至少 4 位'; return; }
+    if (newPw !== confirmPw) { $('#passwordError').textContent = '两次输入的新密码不一致'; return; }
+
+    try {
+      await api('POST', '/api/change-password', { old_password: oldPw, new_password: newPw });
+      toast('密码修改成功', 'ok');
+      $('#changePasswordModal').classList.add('hidden');
+    } catch (e) {
+      $('#passwordError').textContent = e.message;
+    }
+  }
+
+  // ---------- Settings Modal ----------
+  function openSettingsModal() {
+    $('#autoLockSelect').value = settings.auto_lock_seconds;
+    $('#deleteRequiresPassword').checked = settings.delete_requires_password === 'true';
+    $('#deleteVersionRequiresPassword').checked = settings.delete_version_requires_password === 'true';
+    $('#settingsModal').classList.remove('hidden');
+  }
+
+  function closeSettingsModal() {
+    $('#settingsModal').classList.add('hidden');
+  }
+
   // ---------- API 封装 ----------
   async function api(method, path, body) {
     const headers = { 'Content-Type': 'application/json' };
@@ -207,7 +328,9 @@
       if (st.unlocked) {
         showMain();
         try {
+          await loadSettings();
           await loadItems();
+          resetAutoLockTimer();
         } catch (unlockErr) {
           // 服务端已解锁但客户端无有效 token(会话不同步),回到解锁页
           token = null;
@@ -258,7 +381,9 @@
       $('#authPassword').value = '';
       $('#authPassword2').value = '';
       showMain();
+      await loadSettings();
       await loadItems();
+      resetAutoLockTimer();
       toast('已解锁');
     } catch (e) {
       $('#authError').textContent = e.message;
@@ -388,6 +513,14 @@
   async function remove() {
     if (currentId === null) { toast('请先选择条目', 'err'); return; }
     if (!confirm('确定删除该条目吗?其所有历史版本也将被删除。')) return;
+    if (settings.delete_requires_password === 'true') {
+      openVerifyModal({ type: 'item', id: currentId });
+    } else {
+      await doDeleteItem();
+    }
+  }
+
+  async function doDeleteItem() {
     try {
       await api('DELETE', '/api/items/' + currentId);
       toast('已删除');
@@ -413,8 +546,18 @@
         row.className = 'history-item';
         row.innerHTML =
           `<div><span class="hver">v${v.version}</span><span class="htime">${formatTime(v.created_at)}</span></div>` +
-          `<button class="restore-btn" data-ver="${v.version}">还原此版本</button>`;
+          `<div class="history-actions">` +
+          `<button class="restore-btn" data-ver="${v.version}">还原</button>` +
+          `<button class="delete-ver-btn" data-ver="${v.version}" title="删除此版本">✕</button>` +
+          `</div>`;
         row.querySelector('.restore-btn').addEventListener('click', () => restoreVersion(id, v.version));
+        row.querySelector('.delete-ver-btn').addEventListener('click', () => {
+          if (settings.delete_version_requires_password === 'true') {
+            openVerifyModal({ type: 'version', id: id, version: v.version });
+          } else {
+            doDeleteVersion(id, v.version);
+          }
+        });
         list.appendChild(row);
       }
     } catch (e) { toast(e.message, 'err'); }
@@ -431,8 +574,17 @@
     } catch (e) { toast(e.message, 'err'); }
   }
 
+  async function doDeleteVersion(id, version) {
+    try {
+      await api('DELETE', `/api/items/${id}/versions/${version}`);
+      toast('已删除 v' + version);
+      await loadVersions(id);
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
   // ---------- 锁定 ----------
   async function lock() {
+    clearTimeout(autoLockTimer);
     try {
       await api('POST', '/api/lock');
     } catch (_e) { /* 忽略 */ }
@@ -474,12 +626,58 @@
   $('#wipeBtn').addEventListener('click', wipe);
   $('#dbModal').addEventListener('click', (e) => { if (e.target === e.currentTarget) $('#dbModal').classList.add('hidden'); });
   $('#searchInput').addEventListener('input', renderList);
+
+  // Settings
+  $('#settingsBtn').addEventListener('click', openSettingsModal);
+  $('#settingsCloseBtn').addEventListener('click', closeSettingsModal);
+  $('#settingsModal').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeSettingsModal(); });
+  $('#autoLockSelect').addEventListener('change', (e) => {
+    saveSettings({ auto_lock_seconds: e.target.value });
+  });
+  $('#deleteRequiresPassword').addEventListener('change', (e) => {
+    saveSettings({ delete_requires_password: e.target.checked ? 'true' : 'false' });
+  });
+  $('#deleteVersionRequiresPassword').addEventListener('change', (e) => {
+    saveSettings({ delete_version_requires_password: e.target.checked ? 'true' : 'false' });
+  });
+  $('#changePasswordBtn').addEventListener('click', openChangePasswordModal);
+  $('#cancelPasswordBtn').addEventListener('click', () => {
+    $('#changePasswordModal').classList.add('hidden');
+    openSettingsModal();
+  });
+  $('#confirmPasswordBtn').addEventListener('click', confirmChangePassword);
+  $('#changePasswordModal').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) {
+      $('#changePasswordModal').classList.add('hidden');
+      openSettingsModal();
+    }
+  });
+
+  // Verify password modal
+  $('#cancelVerifyBtn').addEventListener('click', () => {
+    $('#verifyPasswordModal').classList.add('hidden');
+    pendingDeleteAction = null;
+  });
+  $('#confirmVerifyBtn').addEventListener('click', confirmVerify);
+  $('#verifyPasswordInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') confirmVerify(); });
+  $('#verifyPasswordModal').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) {
+      $('#verifyPasswordModal').classList.add('hidden');
+      pendingDeleteAction = null;
+    }
+  });
+
   // Ctrl+S 快速保存
   document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
       e.preventDefault();
       save();
     }
+  });
+
+  // Activity timer reset on user interactions
+  ['click', 'keydown', 'scroll', 'mousemove'].forEach((evt) => {
+    document.addEventListener(evt, resetActivityTimer, { passive: true });
   });
 
   initTheme();

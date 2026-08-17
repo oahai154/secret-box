@@ -574,12 +574,22 @@ button { font-family: inherit; }
   color: var(--accent); background: var(--accent-soft); font-weight: 700;
 }
 .history-item .htime { color: var(--dim); font-family: ui-monospace, monospace; font-size: 11.5px; }
+.history-actions { display: flex; gap: 8px; align-items: center; }
 .restore-btn {
   background: transparent; border: 1px solid var(--accent); color: var(--accent);
   padding: 7px 13px; border-radius: 8px; cursor: pointer; font-size: 12.5px;
   transition: background .18s;
 }
 .restore-btn:hover { background: var(--accent-soft); }
+.delete-ver-btn {
+  background: transparent; border: 1px solid var(--border); color: var(--dim);
+  width: 28px; height: 28px; border-radius: 6px; cursor: pointer; font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .18s;
+}
+.delete-ver-btn:hover {
+  background: var(--danger-soft); border-color: var(--danger); color: var(--danger);
+}
 
 /* ---------- Toast ---------- */
 .toast {
@@ -628,7 +638,135 @@ button { font-family: inherit; }
 .btn-block { width: 100%; }
 .export-hint { font-size: 12px; color: var(--dim); line-height: 1.6; margin-top: 8px; }
 .export-hint b { color: var(--text-soft); font-weight: 600; }
-.modal-actions { margin-top: 20px; display: flex; justify-content: flex-end; }
+.modal-actions { margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px; }
+
+/* ============================================================
+   设置弹窗
+   ============================================================ */
+.card-settings { width: min(520px, 100%); }
+.settings-section {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.settings-section:last-of-type { border-bottom: none; }
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.settings-label { flex: 1; min-width: 0; }
+.settings-label-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 3px;
+}
+.settings-label-desc {
+  font-size: 12px;
+  color: var(--dim);
+  line-height: 1.5;
+}
+.settings-control { flex: none; }
+.settings-select {
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color var(--transition-base);
+}
+.settings-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* Toggle Switch */
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: var(--border);
+  border-radius: 24px;
+  transition: background var(--transition-base);
+}
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background: var(--text);
+  border-radius: 50%;
+  transition: transform var(--transition-base);
+}
+.toggle-switch input:checked + .toggle-slider {
+  background: var(--accent);
+}
+.toggle-switch input:checked + .toggle-slider::before {
+  transform: translateX(20px);
+}
+
+/* ============================================================
+   修改密码弹窗
+   ============================================================ */
+.card-password { width: min(420px, 100%); }
+.password-form { display: flex; flex-direction: column; gap: 14px; }
+.form-group { display: flex; flex-direction: column; gap: 6px; }
+.form-group .field-label {
+  font-size: 12px;
+  color: var(--dim);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.form-group input {
+  width: 100%;
+  padding: 11px 13px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  transition: border-color var(--transition-base), box-shadow var(--transition-base);
+}
+.form-group input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.form-group input::placeholder { color: var(--faint); }
+.password-error {
+  color: var(--danger);
+  font-size: 13px;
+  min-height: 18px;
+}
+
+/* ============================================================
+   密码验证弹窗
+   ============================================================ */
+.card-verify { width: min(380px, 100%); }
+.verify-hint {
+  font-size: 13px;
+  color: var(--dim);
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
 
 /* ============================================================
    动画

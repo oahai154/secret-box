@@ -435,8 +435,101 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("DELETE /api/items/{id}", s.requireAuth(s.handleDeleteItem))
 	mux.HandleFunc("GET /api/items/{id}/versions", s.requireAuth(s.handleListVersions))
 	mux.HandleFunc("POST /api/items/{id}/restore/{version}", s.requireAuth(s.handleRestore))
+	mux.HandleFunc("DELETE /api/items/{id}/versions/{version}", s.requireAuth(s.handleDeleteVersion))
+
+	// 设置
+	mux.HandleFunc("GET /api/settings", s.requireAuth(s.handleGetSettings))
+	mux.HandleFunc("PUT /api/settings", s.requireAuth(s.handleUpdateSettings))
+	mux.HandleFunc("POST /api/change-password", s.requireAuth(s.handleChangePassword))
 
 	return logging(mux)
+}
+
+// ---------- Settings Handlers ----------
+
+// handleGetSettings GET /api/settings
+func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
+	settings := s.app.GetAllSettings()
+	// 补充默认值
+	if _, ok := settings["auto_lock_seconds"]; !ok {
+		settings["auto_lock_seconds"] = "120"
+	}
+	if _, ok := settings["delete_requires_password"]; !ok {
+		settings["delete_requires_password"] = "true"
+	}
+	if _, ok := settings["delete_version_requires_password"]; !ok {
+		settings["delete_version_requires_password"] = "true"
+	}
+	writeJSON(w, http.StatusOK, settings)
+}
+
+// handleUpdateSettings PUT /api/settings
+func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
+	var body map[string]string
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	for k, v := range body {
+		if err := s.app.SetSetting(k, v); err != nil {
+			writeErr(w, http.StatusInternalServerError, "保存设置失败: "+k)
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+}
+
+// handleChangePassword POST /api/change-password  {old_password,new_password}
+func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		OldPassword string `json:"old_password"`
+		NewPassword string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	if body.OldPassword == "" || body.NewPassword == "" {
+		writeErr(w, http.StatusBadRequest, "密码不能为空")
+		return
+	}
+	if len(body.NewPassword) < 4 {
+		writeErr(w, http.StatusBadRequest, "新密码至少 4 位")
+		return
+	}
+	// ChangePassword 内部会用旧密钥解密所有条目,密码错误会返回错误
+	if err := s.app.ChangePassword(s.key, body.NewPassword); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// 更新 Server 的密钥(盐值已在 ChangePassword 中更新到数据库)
+	newKey, _, err := DeriveKey(body.NewPassword, s.app.salt)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "密钥派生失败")
+		return
+	}
+	s.key = newKey
+	writeJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+}
+
+// handleDeleteVersion DELETE /api/items/{id}/versions/{version}
+func (s *Server) handleDeleteVersion(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "无效条目 ID")
+		return
+	}
+	versionStr := r.PathValue("version")
+	version, err := strconv.Atoi(versionStr)
+	if err != nil || version < 1 {
+		writeErr(w, http.StatusBadRequest, "无效版本号")
+		return
+	}
+	if err := s.app.DeleteVersion(id, version); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"ok": "true"})
 }
 
 // zeroKey 覆写密钥内存,降低残留风险。

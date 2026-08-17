@@ -29,6 +29,7 @@
       </div>
       <div class="topbar-actions">
         <button id="dbBtn" class="btn btn-ghost btn-sm" title="数据库位置与状态">🗄 数据</button>
+        <button id="settingsBtn" class="btn btn-ghost btn-sm" title="设置"> 设置</button>
         <div class="theme-switch" id="themeSwitch" role="group" aria-label="主题切换">
           <button class="theme-opt" data-theme-opt="system" title="跟随系统">
             <span class="ico">◐</span><span class="label">系统</span>
@@ -127,6 +128,125 @@
   </div>
 
   <div id="toast" class="toast hidden"></div>
+
+  <!-- ===== 设置弹窗 ===== -->
+  <div id="settingsModal" class="modal-mask hidden">
+    <div class="modal card-settings">
+      <h2 class="modal-title">设置</h2>
+
+      <div class="settings-section">
+        <div class="settings-row">
+          <div class="settings-label">
+            <div class="settings-label-title">自动锁定</div>
+            <div class="settings-label-desc">超过指定时间无操作自动锁定</div>
+          </div>
+          <div class="settings-control">
+            <select id="autoLockSelect" class="settings-select">
+              <option value="60">1 分钟</option>
+              <option value="120">2 分钟</option>
+              <option value="300">5 分钟</option>
+              <option value="600">10 分钟</option>
+              <option value="0">永不</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-row">
+          <div class="settings-label">
+            <div class="settings-label-title">删除条目需输入密码</div>
+            <div class="settings-label-desc">防止误删,删除时要求验证主密码</div>
+          </div>
+          <div class="settings-control">
+            <label class="toggle-switch">
+              <input type="checkbox" id="deleteRequiresPassword" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-row">
+          <div class="settings-label">
+            <div class="settings-label-title">删除历史版本需输入密码</div>
+            <div class="settings-label-desc">删除历史版本时要求验证主密码</div>
+          </div>
+          <div class="settings-control">
+            <label class="toggle-switch">
+              <input type="checkbox" id="deleteVersionRequiresPassword" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-row">
+          <div class="settings-label">
+            <div class="settings-label-title">修改密码</div>
+            <div class="settings-label-desc">更改主密码,所有数据将重新加密</div>
+          </div>
+          <div class="settings-control">
+            <button id="changePasswordBtn" class="btn btn-ghost btn-sm">修改</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button id="settingsCloseBtn" class="btn btn-ghost">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 修改密码弹窗 ===== -->
+  <div id="changePasswordModal" class="modal-mask hidden">
+    <div class="modal card-password">
+      <h2 class="modal-title">修改密码</h2>
+
+      <div class="password-form">
+        <div class="form-group">
+          <label class="field-label" for="oldPasswordInput">当前密码</label>
+          <input id="oldPasswordInput" type="password" placeholder="输入当前密码" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label class="field-label" for="newPasswordInput">新密码</label>
+          <input id="newPasswordInput" type="password" placeholder="输入新密码(至少 4 位)" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label class="field-label" for="confirmPasswordInput">确认新密码</label>
+          <input id="confirmPasswordInput" type="password" placeholder="再次输入新密码" autocomplete="off">
+        </div>
+        <div id="passwordError" class="password-error"></div>
+      </div>
+
+      <div class="modal-actions">
+        <button id="cancelPasswordBtn" class="btn btn-ghost">取消</button>
+        <button id="confirmPasswordBtn" class="btn btn-primary">确认修改</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 密码验证弹窗(删除确认) ===== -->
+  <div id="verifyPasswordModal" class="modal-mask hidden">
+    <div class="modal card-verify">
+      <h2 class="modal-title">验证密码</h2>
+      <p class="verify-hint" id="verifyHint">请输入主密码以确认操作</p>
+
+      <div class="password-form">
+        <div class="form-group">
+          <input id="verifyPasswordInput" type="password" placeholder="输入主密码" autocomplete="off">
+        </div>
+        <div id="verifyError" class="password-error"></div>
+      </div>
+
+      <div class="modal-actions">
+        <button id="cancelVerifyBtn" class="btn btn-ghost">取消</button>
+        <button id="confirmVerifyBtn" class="btn btn-primary">确认</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ===== 数据管理弹窗(备份/迁移/清除) ===== -->
   <div id="dbModal" class="modal-mask hidden">

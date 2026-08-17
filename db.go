@@ -2,6 +2,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
 	"errors"
@@ -87,6 +88,10 @@ func initTables(db *sql.DB) error {
 			created_at TEXT NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_versions_secret ON secret_versions(secret_id, version DESC)`,
+		`CREATE TABLE IF NOT EXISTS settings (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL
+		)`,
 	}
 	for _, q := range queries {
 		if _, err := db.Exec(q); err != nil {
@@ -108,6 +113,155 @@ func migrateAddNoteColumn(db *sql.DB) {
 	}
 	// 列不存在,添加
 	_, _ = db.Exec(`ALTER TABLE secret_items ADD COLUMN note TEXT NOT NULL DEFAULT ''`)
+}
+
+// ---------- Settings ----------
+
+// GetSetting 读取设置项,不存在返回默认值。
+func (a *App) GetSetting(key, defaultValue string) string {
+	row := a.db.QueryRow(`SELECT value FROM settings WHERE key=?`, key)
+	var val string
+	if err := row.Scan(&val); err != nil {
+		return defaultValue
+	}
+	return val
+}
+
+// SetSetting 写入设置项。
+func (a *App) SetSetting(key, value string) error {
+	_, err := a.db.Exec(
+		`INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+		key, value)
+	return err
+}
+
+// GetAllSettings 读取全部设置。
+func (a *App) GetAllSettings() map[string]string {
+	rows, err := a.db.Query(`SELECT key,value FROM settings`)
+	if err != nil {
+		return map[string]string{}
+	}
+	defer rows.Close()
+	result := map[string]string{}
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			continue
+		}
+		result[k] = v
+	}
+	return result
+}
+
+// ChangePassword 修改主密码:用新密码重新加密所有条目。
+// 注意:此方法在 handlers.go 中通过 Server 调用,因为 key/salt 在 Server 上。
+func (a *App) ChangePassword(oldKey []byte, newPassword string) error {
+	// 读取所有条目
+	rows, err := a.db.Query(`SELECT id,encrypted_value FROM secret_items`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type entry struct {
+		id  int64
+		enc string
+	}
+	var entries []entry
+	for rows.Next() {
+		var e entry
+		if err := rows.Scan(&e.id, &e.enc); err != nil {
+			return err
+		}
+		entries = append(entries, e)
+	}
+
+	// 用新盐值派生新密钥
+	newSalt := make([]byte, 16)
+	if _, err := rand.Read(newSalt); err != nil {
+		return err
+	}
+	newKey, _, err := DeriveKey(newPassword, newSalt)
+	if err != nil {
+		return err
+	}
+
+	tx, err := a.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// 重新加密所有条目
+	for _, e := range entries {
+		plain, err := Decrypt(oldKey, e.enc)
+		if err != nil {
+			return err
+		}
+		newEnc, err := Encrypt(newKey, plain)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE secret_items SET encrypted_value=? WHERE id=?`, newEnc, e.id); err != nil {
+			return err
+		}
+	}
+
+	// 重新加密所有历史版本
+	vrows, err := tx.Query(`SELECT id,encrypted_snapshot FROM secret_versions`)
+	if err != nil {
+		return err
+	}
+	defer vrows.Close()
+	var versions []entry
+	for vrows.Next() {
+		var v entry
+		if err := vrows.Scan(&v.id, &v.enc); err != nil {
+			return err
+		}
+		versions = append(versions, v)
+	}
+	for _, v := range versions {
+		plain, err := Decrypt(oldKey, v.enc)
+		if err != nil {
+			return err
+		}
+		newEnc, err := Encrypt(newKey, plain)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE secret_versions SET encrypted_snapshot=? WHERE id=?`, newEnc, v.id); err != nil {
+			return err
+		}
+	}
+
+	// 更新盐值
+	newSaltB64 := base64.StdEncoding.EncodeToString(newSalt)
+	if _, err := tx.Exec(
+		`INSERT INTO meta(key,value) VALUES('salt',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+		newSaltB64); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	// 返回新密钥和盐值,由调用方设置
+	return nil
+}
+
+// DeleteVersion 删除指定历史版本。
+func (a *App) DeleteVersion(secretID int64, version int) error {
+	res, err := a.db.Exec(`DELETE FROM secret_versions WHERE secret_id=? AND version=?`, secretID, version)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return errors.New("版本不存在")
+	}
+	return nil
 }
 
 // reloadSalt 从 meta 表重新读取盐值。
