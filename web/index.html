@@ -65,25 +65,31 @@
         </div>
 
         <div id="editor" class="editor hidden">
-          <div class="editor-row">
-            <label class="field-label" for="itemTitle">标题</label>
-            <input id="itemTitle" type="text" placeholder="例:GitHub 密钥">
+          <div class="editor-card">
+            <div class="editor-row">
+              <label class="field-label" for="itemTitle">标题</label>
+              <input id="itemTitle" type="text" placeholder="例:GitHub 密钥">
+            </div>
+            <div class="editor-foot" style="margin-top: 16px;">
+              <select id="itemCategory">
+                <option value="">通用</option>
+                <option value="账号密码">账号密码</option>
+                <option value="API密钥">API 密钥</option>
+                <option value="应用密钥">应用密钥</option>
+                <option value="私钥">私钥</option>
+                <option value="其他">其他</option>
+              </select>
+              <span id="itemMeta" class="item-meta"></span>
+            </div>
           </div>
-          <div class="editor-foot">
-            <select id="itemCategory">
-              <option value="">通用</option>
-              <option value="账号密码">账号密码</option>
-              <option value="API密钥">API 密钥</option>
-              <option value="应用密钥">应用密钥</option>
-              <option value="私钥">私钥</option>
-              <option value="其他">其他</option>
-            </select>
-            <span id="itemMeta" class="item-meta"></span>
+
+          <div class="editor-card">
+            <div class="editor-row">
+              <label class="field-label" for="itemValue">保密内容</label>
+              <textarea id="itemValue" placeholder="粘贴或输入要保密的内容…" spellcheck="false"></textarea>
+            </div>
           </div>
-          <div class="editor-row">
-            <label class="field-label" for="itemValue">保密内容</label>
-            <textarea id="itemValue" placeholder="粘贴或输入要保密的内容…" spellcheck="false"></textarea>
-          </div>
+
           <div class="editor-actions">
             <button id="saveBtn" class="btn btn-primary">💾 保存</button>
             <button id="deleteBtn" class="btn btn-danger">🗑 删除</button>
