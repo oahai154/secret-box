@@ -5,9 +5,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"errors"
-	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -302,67 +300,144 @@ func (a *App) getAnyEncrypted() string {
 	return enc
 }
 
-// MigrateFrom 将 srcPath 的数据库迁移(合并为一致快照)到当前 dbPath。
-// 用于把旧位置(exe 同目录)的库搬到用户目录,防止数据丢失。
-func (a *App) MigrateFrom(srcPath string) error {
-	srcClean := filepath.Clean(srcPath)
-	dstClean := filepath.Clean(a.dbPath)
-	if srcClean == dstClean {
-		return errors.New("源路径与目标路径相同")
-	}
-	if _, err := os.Stat(srcPath); err != nil {
-		return errors.New("找不到源数据库: " + srcPath)
-	}
+// ---------- 迁移导出/导入 ----------
 
-	// 1. 生成 VACUUM INTO 的目标临时文件(包含 WAL 中未合并的数据,得到单文件一致快照)
-	tmp, err := os.CreateTemp(filepath.Dir(dstClean), ".migrate-*.db")
+// MigrationItem 迁移文件中的单个条目(含明文密文与历史版本快照)。
+type MigrationItem struct {
+	Title    string            `json:"title"`
+	Category string            `json:"category"`
+	Value    string            `json:"value"`    // 已用主密码加密的密文
+	Created  string            `json:"created"`
+	Updated  string            `json:"updated"`
+	Versions []MigrationVersion `json:"versions"`
+}
+
+// MigrationVersion 迁移文件中的单个历史版本快照。
+type MigrationVersion struct {
+	Version int    `json:"version"`
+	Snapshot string `json:"snapshot"` // 已用主密码加密的密文快照
+	Created string `json:"created"`
+}
+
+// Snapshot 一次导出的完整数据快照(明文包裹在迁移固件中)。
+type Snapshot struct {
+	HasPassword bool             `json:"has_password"` // 原库是否已设主密码
+	SaltB64     string           `json:"salt"`         // 主密码派生的盐值(base64)
+	Items       []MigrationItem  `json:"items"`
+}
+
+// GetSnapshot 读取当前数据库的完整数据快照。
+func (a *App) GetSnapshot() (*Snapshot, error) {
+	snap := &Snapshot{
+		HasPassword: a.HasMasterPassword(),
+		SaltB64:     "",
+	}
+	// 直接从库读取盐值,不依赖内存状态,确保导出包含主密码盐
+	var enc string
+	if err := a.db.QueryRow(`SELECT value FROM meta WHERE key='salt'`).Scan(&enc); err == nil {
+		snap.SaltB64 = enc
+	}
+	rows, err := a.db.Query(`SELECT id,title,category,encrypted_value,created_at,updated_at FROM secret_items ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var it MigrationItem
+		if err := rows.Scan(&id, &it.Title, &it.Category, &it.Value, &it.Created, &it.Updated); err != nil {
+			return nil, err
+		}
+		it.Versions = []MigrationVersion{}
+		vrows, err := a.db.Query(
+			`SELECT version,encrypted_snapshot,created_at FROM secret_versions WHERE secret_id=? ORDER BY version`, id)
+		if err != nil {
+			return nil, err
+		}
+		for vrows.Next() {
+			var v MigrationVersion
+			if err := vrows.Scan(&v.Version, &v.Snapshot, &v.Created); err != nil {
+				vrows.Close()
+				return nil, err
+			}
+			it.Versions = append(it.Versions, v)
+		}
+		vrows.Close()
+		snap.Items = append(snap.Items, it)
+	}
+	return snap, rows.Err()
+}
+
+// RestoreFromSnapshot 用给定快照重建整个库(先清空再写入)。
+func (a *App) RestoreFromSnapshot(snap *Snapshot) error {
+	tx, err := a.db.Begin()
 	if err != nil {
 		return err
 	}
-	tmpPath := tmp.Name()
-	tmp.Close() // VACUUM INTO 要求目标不存在,先释放句柄再删除
-
-	openTmp := func() error {
-		os.Remove(tmpPath)
-		srcDB, err := sql.Open("sqlite", "file:"+filepath.ToSlash(srcPath)+"?mode=ro")
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM secret_versions`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM secret_items`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM meta`); err != nil {
+		return err
+	}
+	if snap.SaltB64 != "" {
+		if _, err := tx.Exec(`INSERT INTO meta(key,value) VALUES('salt',?)`, snap.SaltB64); err != nil {
+			return err
+		}
+	}
+	for _, it := range snap.Items {
+		if it.Value == "" {
+			continue
+		}
+		res, err := tx.Exec(
+			`INSERT INTO secret_items(title,category,encrypted_value,created_at,updated_at) VALUES(?,?,?,?,?)`,
+			it.Title, it.Category, it.Value, it.Created, it.Updated)
 		if err != nil {
 			return err
 		}
-		defer srcDB.Close()
-		_, err = srcDB.Exec(`VACUUM INTO '` + strings.ReplaceAll(filepath.ToSlash(tmpPath), "'", "''") + `'`)
+		id, _ := res.LastInsertId()
+		for _, v := range it.Versions {
+			if v.Snapshot == "" {
+				continue
+			}
+			if _, err := tx.Exec(
+				`INSERT INTO secret_versions(secret_id,version,encrypted_snapshot,created_at) VALUES(?,?,?,?)`,
+				id, v.Version, v.Snapshot, v.Created); err != nil {
+				return err
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
 		return err
 	}
-	if err := openTmp(); err != nil {
-		os.Remove(tmpPath)
-		return errors.New("生成快照失败: " + err.Error())
-	}
+	return a.reloadSalt()
+}
 
-	// 2. 关闭当前连接
-	if a.db != nil {
-		a.db.Close()
-		a.db = nil
-	}
-
-	// 3. 替换目标(先删除旧文件与 WAL/SHM 伴生文件)
-	for _, p := range []string{dstClean, dstClean + "-wal", dstClean + "-shm"} {
-		os.Remove(p)
-	}
-	if err := os.Rename(tmpPath, dstClean); err != nil {
-		os.Remove(tmpPath)
-		return errors.New("替换失败: " + err.Error())
-	}
-
-	// 4. 重开连接并刷新盐值
-	db, err := sql.Open("sqlite", sqliteDSN(dstClean))
+// Wipe 清除全部数据(条目、版本与盐值/主密码设置),用于"导出后清除本地痕迹"。
+func (a *App) Wipe() error {
+	tx, err := a.db.Begin()
 	if err != nil {
 		return err
 	}
-	if err := initTables(db); err != nil {
-		os.Remove(srcClean)
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM secret_versions`); err != nil {
 		return err
 	}
-	a.db = db
-	return a.reloadSalt()
+	if _, err := tx.Exec(`DELETE FROM secret_items`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM meta`); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	a.salt = nil
+	return nil
 }
 
 // Close 关闭数据库。

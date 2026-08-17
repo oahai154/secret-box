@@ -9,26 +9,24 @@ import (
 	"errors"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const tokenBytes = 32
 
 // Server 持有 App 引用与当前内存密钥/会话 token。
 type Server struct {
-	app        *App
-	key        []byte // 解锁后的派生密钥,仅存内存
-	token      string // 当前会话 token(空表示未解锁)
-	dbPath     string // 当前数据库文件路径
-	legacyPath string // 旧版遗留库路径(可能为空,来自 exe 同目录)
+	app    *App
+	key    []byte // 解锁后的派生密钥,仅存内存
+	token  string // 当前会话 token(空表示未解锁)
+	dbPath string // 当前数据库文件路径
 }
 
-// newServer 构造服务,记录数据库路径与可选遗留库路径。
-func newServer(app *App, dbPath, legacyPath string) *Server {
-	return &Server{app: app, dbPath: dbPath, legacyPath: legacyPath}
+// newServer 构造服务,记录数据库路径。
+func newServer(app *App, dbPath string) *Server {
+	return &Server{app: app, dbPath: dbPath}
 }
 
 // writeJSON 统一 JSON 响应。
@@ -72,67 +70,129 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleDBInfo GET /api/db-info
-// 返回数据库位置、状态与是否存在可迁移的遗留库。
-func (s *Server) handleDBInfo(w http.ResponseWriter, r *http.Request) {
-	legacyInfo := map[string]any{"path": "", "exists": false, "size": 0, "has_password": false}
-	if s.legacyPath != "" {
-		fi, err := os.Stat(s.legacyPath)
-		exists := err == nil
-		size := int64(0)
-		if exists {
-			size = fi.Size()
-		}
-		// 遗留库是否已设置主密码(通过独立只读连接查询)
-		lp := false
-		if exists {
-			lp = probeHasPassword(s.legacyPath)
-		}
-		legacyInfo = map[string]any{"path": s.legacyPath, "exists": exists, "size": size, "has_password": lp}
-	}
+// ---------- 迁移文件格式 ----------
+// 迁移文件(JSON)结构:
+//   { "version":1, "salt":"<派生迁移用盐 b64>", "cipher":"<由迁移口令派生出的
+//     AES-GCM 加密的 Snapshot JSON>, b64>" }
+// 导出时用"迁移口令"派生随机盐→密钥,加密 Snapshot;导入时用口令+文件内盐重新派生,
+// 解密出 Snapshot 并重建本地库。口令错误时 Decrypt 会失败,实现口令校验。
 
-	fi, _ := os.Stat(s.dbPath)
+// handleExport POST /api/export { password }
+// 生成加密迁移文件并返回其内容(base64)与建议文件名。不修改本地库。
+func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	if len(strings.TrimSpace(body.Password)) < 4 {
+		writeErr(w, http.StatusBadRequest, "迁移口令至少 4 个字符")
+		return
+	}
+	snap, err := s.app.GetSnapshot()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取数据失败")
+		return
+	}
+	snapJSON, err := json.Marshal(snap)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "序列化失败")
+		return
+	}
+	key, salt, err := DeriveKey(body.Password, nil) // 独立随机盐
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "密钥派生失败")
+		return
+	}
+	cipherText, err := Encrypt(key, string(snapJSON))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "加密失败")
+		return
+	}
+	file := map[string]any{
+		"version": 1,
+		"salt":    base64.StdEncoding.EncodeToString(salt),
+		"cipher":  cipherText,
+	}
+	fileJSON, _ := json.Marshal(file)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"db_path":        s.dbPath,
-		"db_exists":      fi != nil,
-		"db_size":        func() int64 { if fi != nil { return fi.Size() }; return 0 }(),
-		"has_password":   s.app.HasMasterPassword(),
-		"legacy":         legacyInfo,
-		"can_migrate":    s.legacyPath != "",
+		"filename": "secretbox-backup-" + time.Now().Format("20060102-150405") + ".secretbox",
+		"content":  base64.StdEncoding.EncodeToString(fileJSON),
 	})
 }
 
-// probeHasPassword 只读打开指定库并判断是否已设主密码。
-func probeHasPassword(path string) bool {
-	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?mode=ro")
+// handleImport POST /api/import { password, content }
+// 读取迁移文件,用口令解密校验,还原到本地库(覆盖)。成功后弃用旧会话,需用原主密码解锁。
+func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Password string `json:"password"`
+		Content  string `json:"content"` // 迁移文件原始内容(base64,由前端上传)
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	raw, err := base64.StdEncoding.DecodeString(body.Content)
 	if err != nil {
-		return false
-	}
-	defer db.Close()
-	var n int
-	_ = db.QueryRow(`SELECT COUNT(*) FROM meta WHERE key='salt'`).Scan(&n)
-	return n > 0
-}
-
-// handleMigrate POST /api/db/migrate
-// 将遗留库迁移到当前数据库位置。迁移后需用原主密码重新解锁。
-func (s *Server) handleMigrate(w http.ResponseWriter, r *http.Request) {
-	if s.legacyPath == "" {
-		writeErr(w, http.StatusBadRequest, "未发现可迁移的数据库")
+		writeErr(w, http.StatusBadRequest, "迁移文件无法解析(损坏?)")
 		return
 	}
-	if err := s.app.MigrateFrom(s.legacyPath); err != nil {
-		writeErr(w, http.StatusInternalServerError, "迁移失败: "+err.Error())
+	var file struct {
+		Version int    `json:"version"`
+		Salt    string `json:"salt"`
+		Cipher  string `json:"cipher"`
+	}
+	if err := json.Unmarshal(raw, &file); err != nil || file.Version != 1 || file.Salt == "" {
+		writeErr(w, http.StatusBadRequest, "迁移文件格式无效")
 		return
 	}
-	// 迁移后数据被替换,弃用旧会话与密钥,前端需重新解锁
+	salt, err := base64.StdEncoding.DecodeString(file.Salt)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "迁移文件格式无效")
+		return
+	}
+	key, _, err := DeriveKey(body.Password, salt)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "密钥派生失败")
+		return
+	}
+	plain, err := Decrypt(key, file.Cipher)
+	if err != nil {
+		writeErr(w, http.StatusUnauthorized, "迁移口令错误或文件已损坏")
+		return
+	}
+	var snap Snapshot
+	if err := json.Unmarshal([]byte(plain), &snap); err != nil {
+		writeErr(w, http.StatusBadRequest, "迁移文件内容无效")
+		return
+	}
+	if err := s.app.RestoreFromSnapshot(&snap); err != nil {
+		writeErr(w, http.StatusInternalServerError, "恢复数据失败: "+err.Error())
+		return
+	}
 	zeroKey()
 	s.key = nil
 	s.token = ""
 	writeJSON(w, http.StatusOK, map[string]any{
-		"migrated": true,
-		"db_path":  s.dbPath,
+		"imported":     true,
+		"has_password": snap.HasPassword,
+		"items":        len(snap.Items),
 	})
+}
+
+// handleWipe POST /api/wipe
+// 清除本地全部数据(条目、版本与主密码设置),用于"导出后消除本地痕迹"。
+func (s *Server) handleWipe(w http.ResponseWriter, r *http.Request) {
+	if err := s.app.Wipe(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "清除失败: "+err.Error())
+		return
+	}
+	zeroKey()
+	s.key = nil
+	s.token = ""
+	writeJSON(w, http.StatusOK, map[string]bool{"wiped": true})
 }
 
 // handleSetupPassword POST /api/setup-password  {password}
@@ -358,11 +418,13 @@ func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /api/status", s.handleStatus)
-	mux.HandleFunc("GET /api/db-info", s.handleDBInfo)
-	mux.HandleFunc("POST /api/db/migrate", s.handleMigrate)
 	mux.HandleFunc("POST /api/setup-password", s.handleSetupPassword)
 	mux.HandleFunc("POST /api/unlock", s.handleUnlock)
 	mux.HandleFunc("POST /api/lock", s.requireAuth(s.handleLock))
+
+	mux.HandleFunc("POST /api/export", s.requireAuth(s.handleExport))
+	mux.HandleFunc("POST /api/import", s.requireAuth(s.handleImport))
+	mux.HandleFunc("POST /api/wipe", s.requireAuth(s.handleWipe))
 
 	mux.HandleFunc("POST /api/items", s.requireAuth(s.handleCreateItem))
 	mux.HandleFunc("GET /api/items", s.requireAuth(s.handleListItems))

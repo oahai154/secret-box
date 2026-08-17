@@ -55,47 +55,83 @@
     }
   });
 
-  // ---------- 数据库信息 & 迁移 ----------
-  let dbInfoCache = null;
-  async function loadDBInfo() {
-    try {
-      dbInfoCache = await api('GET', '/api/db-info');
-    } catch (_e) { dbInfoCache = null; }
-  }
-  function fmtSize(b) {
-    if (!b) return '0 B';
-    if (b < 1024) return b + ' B';
-    if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
-    return (b / 1024 / 1024).toFixed(1) + ' MB';
-  }
-  function renderDBInfo() {
-    const box = $('#dbInfo');
-    if (!dbInfoCache) { box.innerHTML = '<div class="db-row">无法获取数据库信息</div>'; return; }
-    const d = dbInfoCache;
-    const leg = d.legacy || {};
-    let html = '';
-    html += `<div class="db-section-title">当前数据库</div>`;
-    html += `<div class="db-row"><span class="db-label">位置</span><span class="db-value mono">${esc(d.db_path)}</span></div>`;
-    html += `<div class="db-row"><span class="db-label">状态</span><span class="db-value">${d.db_exists ? '✅ 正常' : '⚠️ 不存在'}</span></div>`;
-    html += `<div class="db-row"><span class="db-label">大小</span><span class="db-value">${fmtSize(d.db_size)}</span></div>`;
-    html += `<div class="db-row"><span class="db-label">主密码</span><span class="db-value">${d.has_password ? '✅ 已设置' : '未设置'}</span></div>`;
-    if (d.legacy && leg.exists) {
-      html += `<div class="db-section-title">检测到旧数据库</div>`;
-      html += `<div class="db-row"><span class="db-label">位置</span><span class="db-value mono">${esc(leg.path)}</span></div>`;
-      html += `<div class="db-row"><span class="db-label">大小</span><span class="db-value">${fmtSize(leg.size)}</span></div>`;
-    }
-    box.innerHTML = html;
-    // 迁移区域:仅当存在遗留库且与当前库路径不同且当前库未设密码(避免覆盖已有数据)时显示
-    const migrateBox = $('#dbMigrate');
-    const showMigrate = d.can_migrate && leg.exists && leg.path !== d.db_path && !d.has_password;
-    migrateBox.classList.toggle('hidden', !showMigrate);
-  }
+  // ---------- 数据备份 / 迁移 / 清除 ----------
   async function openDBModal() {
-    await loadDBInfo();
-    renderDBInfo();
+    renderDBInfo('加载中…');
     $('#dbModal').classList.remove('hidden');
   }
-  function closeDBModal() { $('#dbModal').classList.add('hidden'); }
+  async function renderDBInfo(prefix) {
+    const box = $('#dbInfo');
+    const base = prefix ? `<div class="db-row"><span class="db-label">状态</span><span class="db-value">${esc(prefix)}</span></div>` : '';
+    try {
+      const st = await api('GET', '/api/status');
+      let count = 0;
+      try { count = items.length; } catch (_e) {}
+      box.innerHTML = base +
+        `<div class="db-row"><span class="db-label">条目</span><span class="db-value">${count} 条</span></div>` +
+        `<div class="db-row"><span class="db-label">主密码</span><span class="db-value">${st.has_password ? '✅ 已设置' : '未设置'}</span></div>`;
+    } catch (_e) {
+      box.innerHTML = base + `<div class="db-row"><span class="db-label">状态</span><span class="db-value">无法获取信息</span></div>`;
+    }
+  }
+
+  // 导出:弹出迁移口令 → 调用后端 → 触发前端下载
+  async function exportBackup() {
+    const pw = prompt('设置迁移口令(至少 4 位)。该口令用于加密迁移文件,请务必牢记:');
+    if (pw === null) return;
+    if (pw.trim().length < 4) { toast('迁移口令至少 4 个字符', 'err'); return; }
+    try {
+      const data = await api('POST', '/api/export', { password: pw });
+      // content 即迁移文件内容(base64 文本);直接保存为 .secretbox 文件,导入时原样上传
+      const blob = new Blob([data.content], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = data.filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast('已导出迁移文件: ' + data.filename);
+    } catch (e) { toast('导出失败: ' + e.message, 'err'); }
+  }
+
+  // 导入:用户先选文件,后端用口令解密校验并还原
+  async function handleImportFile(file) {
+    if (!file) { toast('请选择迁移文件', 'err'); return; }
+    const pw = prompt('输入该迁移文件的口令:');
+    if (pw === null) return;
+    const text = await file.text();
+    try {
+      const data = await api('POST', '/api/import', { password: pw, content: text });
+      toast(`导入成功: ${data.items} 条数据`, 'ok');
+      // 若导入内容设置了主密码,需用原主密码重新解锁
+      token = null;
+      currentId = null;
+      items = [];
+      configureAuthMode(data.has_password);
+      showAuth();
+      $('#authPassword').focus();
+    } catch (e) {
+      toast('导入失败: ' + e.message, 'err');
+    }
+    $('#importFile').value = '';
+  }
+
+  // 清除本地痕迹
+  async function wipe() {
+    if (!confirm('将删除本地全部数据(条目、历史、主密码)。除非你已导出迁移文件,否则此操作不可恢复。确定继续?')) return;
+    try {
+      await api('POST', '/api/wipe');
+      toast('已清除本地全部数据', 'ok');
+      token = null;
+      currentId = null;
+      items = [];
+      configureAuthMode(false);
+      showAuth();
+      $('#authPassword').focus();
+    } catch (e) { toast('清除失败: ' + e.message, 'err'); }
+  }
 
   // ---------- 视图切换 ----------
   function showAuth() {
@@ -109,8 +145,6 @@
 
   // ---------- 认证流程 ----------
   async function init() {
-    // 预加载数据库信息,供"🗄 数据"面板与迁移使用
-    loadDBInfo();
     try {
       const st = await api('GET', '/api/status');
       if (st.unlocked) {
@@ -327,22 +361,6 @@
     } catch (e) { toast(e.message, 'err'); }
   }
 
-  async function migrateDB() {
-    if (!confirm('将旧数据库迁移到当前数据目录。迁移完成后需用"原主密码"重新解锁。确定迁移?')) return;
-    try {
-      await api('POST', '/api/db/migrate');
-      toast('迁移成功,请用原主密码重新解锁');
-      closeDBModal();
-      // 迁移后服务端已弃用会话,回到解锁页
-      token = null;
-      currentId = null;
-      items = [];
-      configureAuthMode(true);
-      showAuth();
-      $('#authPassword').focus();
-    } catch (e) { toast('迁移失败: ' + e.message, 'err'); }
-  }
-
   // ---------- 锁定 ----------
   async function lock() {
     try {
@@ -379,9 +397,12 @@
   $('#deleteBtn').addEventListener('click', remove);
   $('#lockBtn').addEventListener('click', lock);
   $('#dbBtn').addEventListener('click', openDBModal);
-  $('#dbCloseBtn').addEventListener('click', closeDBModal);
-  $('#migrateBtn').addEventListener('click', migrateDB);
-  $('#dbModal').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeDBModal(); });
+  $('#dbCloseBtn').addEventListener('click', () => { $('#dbModal').classList.add('hidden'); });
+  $('#exportBtn').addEventListener('click', exportBackup);
+  $('#importBtn').addEventListener('click', () => $('#importFile').click());
+  $('#importFile').addEventListener('change', (e) => handleImportFile(e.target.files[0]));
+  $('#wipeBtn').addEventListener('click', wipe);
+  $('#dbModal').addEventListener('click', (e) => { if (e.target === e.currentTarget) $('#dbModal').classList.add('hidden'); });
   $('#searchInput').addEventListener('input', renderList);
   // Ctrl+S 快速保存
   document.addEventListener('keydown', (e) => {

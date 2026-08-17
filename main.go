@@ -32,15 +32,6 @@ func main() {
 		dbPath = defaultDBPath()
 	}
 
-	// 若工作目录存在旧版遗留库(与 exe 同目录 secretbox.db),作为"可迁移源"上报前端
-	legacyPath := ""
-	if exe, err := os.Executable(); err == nil {
-		legacy := filepath.Join(filepath.Dir(exe), "secretbox.db")
-		if _, statErr := os.Stat(legacy); statErr == nil {
-			legacyPath = legacy
-		}
-	}
-
 	// 确保数据目录存在后再打开数据库
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
 		log.Fatalf("创建数据目录失败: %v", err)
@@ -52,7 +43,7 @@ func main() {
 	}
 	defer app.Close()
 
-	srv := newServer(app, dbPath, legacyPath)
+	srv := newServer(app, dbPath)
 	handler := staticHandler(srv.routes())
 
 	// 端口:0 表示自动探测。先尝试指定端口(默认从 8080 起),占用则向上递增到空闲。
