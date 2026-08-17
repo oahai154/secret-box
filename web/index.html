@@ -107,12 +107,14 @@
 
           <div class="editor-card">
             <div class="editor-row">
-              <label class="field-label" for="itemValue">保密内容</label>
-              <div class="value-toggle-bar">
-                <button id="toggleValueBtn" class="btn btn-ghost btn-sm" type="button">
-                  <svg class="eye-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                  <span class="toggle-text">点击显示</span>
-                </button>
+              <div class="field-header">
+                <label class="field-label" for="itemValue">保密内容</label>
+                <div class="value-toggle-bar">
+                  <button id="toggleValueBtn" class="btn btn-ghost btn-sm" type="button">
+                    <svg class="eye-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    <span class="toggle-text">点击显示</span>
+                  </button>
+                </div>
               </div>
               <textarea id="itemValue" class="value-hidden" placeholder="点击「点击显示」查看保密内容…" spellcheck="false"></textarea>
             </div>
@@ -279,7 +281,7 @@
         <div class="export-hint">选择之前导出的迁移文件并输入该迁移口令,将完全还原其中的数据。</div>
 
         <button id="wipeBtn" class="btn btn-danger btn-block">清除本地全部数据</button>
-        <div class="export-hint">彻底删除本地所有条目、历史与主密码设置。建议先导出备份。</div>
+        <div class="export-hint">彻底删除本地所有条目、历史与主密码设置。<b>必须先完成迁移文件导出并输入主密码验证后才能清除</b>,以防误操作造成数据丢失。</div>
       </div>
 
       <div class="modal-actions">

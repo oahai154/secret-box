@@ -57,6 +57,8 @@
     $('#verifyError').textContent = '';
     if (action.type === 'item') {
       $('#verifyHint').textContent = '删除条目需要验证主密码';
+    } else if (action.type === 'wipe') {
+      $('#verifyHint').textContent = '清除本地全部数据需要验证主密码,验证后还需先导出迁移文件';
     } else {
       $('#verifyHint').textContent = '删除历史版本需要验证主密码';
     }
@@ -77,6 +79,8 @@
       if (pendingDeleteAction) {
         if (pendingDeleteAction.type === 'item') {
           await doDeleteItem();
+        } else if (pendingDeleteAction.type === 'wipe') {
+          await doWipe();
         } else {
           await doDeleteVersion(pendingDeleteAction.id, pendingDeleteAction.version);
         }
@@ -218,7 +222,16 @@
   // ---------- 保密内容显示/隐藏 ----------
   const toggleValueBtn = $('#toggleValueBtn');
   const itemValueEl = $('#itemValue');
+  const itemNoteEl = $('#itemNote');
   const toggleText = toggleValueBtn.querySelector('.toggle-text');
+
+  // 文本框按内容自动调整高度(配合 CSS 的 min/max-height)
+  function autoResizeTextarea(el) {
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+  }
+  itemValueEl.addEventListener('input', () => autoResizeTextarea(itemValueEl));
+  itemNoteEl.addEventListener('input', () => autoResizeTextarea(itemNoteEl));
 
   toggleValueBtn.addEventListener('click', () => {
     valueVisible = !valueVisible;
@@ -235,29 +248,31 @@
 
   // ---------- 数据备份 / 迁移 / 清除 ----------
   async function openDBModal() {
-    renderDBInfo('加载中…');
     $('#dbModal').classList.remove('hidden');
+    await renderDBInfo();
   }
-  async function renderDBInfo(prefix) {
+  async function renderDBInfo() {
     const box = $('#dbInfo');
-    const base = prefix ? `<div class="db-row"><span class="db-label">状态</span><span class="db-value">${esc(prefix)}</span></div>` : '';
+    // 立即显示加载中
+    box.innerHTML = '<div class="db-row"><span class="db-label">状态</span><span class="db-value">加载中…</span></div>';
     try {
       const st = await api('GET', '/api/status');
       let count = 0;
       try { count = items.length; } catch (_e) {}
-      box.innerHTML = base +
+      box.innerHTML =
+        `<div class="db-row"><span class="db-label">状态</span><span class="db-value">✅ 正常</span></div>` +
         `<div class="db-row"><span class="db-label">条目</span><span class="db-value">${count} 条</span></div>` +
         `<div class="db-row"><span class="db-label">主密码</span><span class="db-value">${st.has_password ? '✅ 已设置' : '未设置'}</span></div>`;
     } catch (_e) {
-      box.innerHTML = base + `<div class="db-row"><span class="db-label">状态</span><span class="db-value">无法获取信息</span></div>`;
+      box.innerHTML = '<div class="db-row"><span class="db-label">状态</span><span class="db-value">无法获取信息</span></div>';
     }
   }
 
   // 导出:弹出迁移口令 → 调用后端 → 触发前端下载
   async function exportBackup() {
     const pw = prompt('设置迁移口令(至少 4 位)。该口令用于加密迁移文件,请务必牢记:');
-    if (pw === null) return;
-    if (pw.trim().length < 4) { toast('迁移口令至少 4 个字符', 'err'); return; }
+    if (pw === null) return false;
+    if (pw.trim().length < 4) { toast('迁移口令至少 4 个字符', 'err'); return false; }
     try {
       const data = await api('POST', '/api/export', { password: pw });
       // content 即迁移文件内容(base64 文本);直接保存为 .secretbox 文件,导入时原样上传
@@ -271,7 +286,8 @@
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
       toast('已导出迁移文件: ' + data.filename);
-    } catch (e) { toast('导出失败: ' + e.message, 'err'); }
+      return true;
+    } catch (e) { toast('导出失败: ' + e.message, 'err'); return false; }
   }
 
   // 导入:用户先选文件,后端用口令解密校验并还原
@@ -296,9 +312,24 @@
     $('#importFile').value = '';
   }
 
-  // 清除本地痕迹
-  async function wipe() {
-    if (!confirm('将删除本地全部数据(条目、历史、主密码)。除非你已导出迁移文件,否则此操作不可恢复。确定继续?')) return;
+  // 清除本地痕迹:密码验证 → 强制导出 → 二次确认 → 清除
+  function wipe() {
+    // 先关闭数据备份弹窗,避免它遮住后续的密码验证弹窗
+    $('#dbModal').classList.add('hidden');
+    openVerifyModal({ type: 'wipe' });
+  }
+
+  async function doWipe() {
+    // 1) 强制导出,导出失败/取消则中止
+    toast('请先完成迁移文件导出');
+    const exported = await exportBackup();
+    if (!exported) {
+      toast('未完成导出,已取消清除', 'err');
+      return;
+    }
+    // 2) 导出成功后再做一次最终确认
+    if (!confirm('迁移文件已下载。确定要彻底清除本地全部数据吗?此操作不可恢复!')) return;
+    // 3) 执行清除
     try {
       await api('POST', '/api/wipe');
       toast('已清除本地全部数据', 'ok');
@@ -425,12 +456,18 @@
   }
 
   async function selectItem(id) {
+    // 只更新列表选中状态,避免重新渲染整个列表导致闪烁
+    document.querySelectorAll('#itemList .item').forEach((el) => {
+      el.classList.toggle('active', parseInt(el.dataset.id) === id);
+    });
     currentId = id;
-    renderList();
     try {
-      const it = await api('GET', '/api/items/' + id);
+      // 并行请求条目详情和版本历史,减少总等待时间
+      const [it] = await Promise.all([
+        api('GET', '/api/items/' + id),
+        loadVersions(id),
+      ]);
       showEditor(it);
-      await loadVersions(id);
     } catch (e) {
       toast(e.message, 'err');
     }
@@ -450,6 +487,9 @@
     toggleText.textContent = '点击显示';
     $('#itemMeta').textContent =
       '创建 ' + formatTime(it.created_at) + ' · 修改 ' + formatTime(it.updated_at);
+    // 按内容自适应文本框高度
+    autoResizeTextarea(itemValueEl);
+    autoResizeTextarea(itemNoteEl);
   }
 
   function clearEditor() {
@@ -483,6 +523,9 @@
     toggleText.textContent = '点击显示';
     $('#itemMeta').textContent = '新条目';
     $('#itemTitle').focus();
+    // 按内容自适应文本框高度(空值时回到 min-height)
+    autoResizeTextarea(itemValueEl);
+    autoResizeTextarea(itemNoteEl);
   }
 
   async function save() {
@@ -500,10 +543,12 @@
         await api('PUT', '/api/items/' + currentId, { title, category, note, value });
         toast('已保存,已记录新版本');
       }
-      // 保存后刷新,重新读取最新值与版本
+      // 保存后刷新列表数据,但不重新选择条目
+      items = await api('GET', '/api/items');
+      renderList();
+      // 重新读取当前条目的最新信息
       const it = await api('GET', '/api/items/' + currentId);
       showEditor(it);
-      await loadItems();
       await loadVersions(currentId);
     } catch (e) {
       toast(e.message, 'err');
@@ -568,7 +613,9 @@
     try {
       const it = await api('POST', `/api/items/${id}/restore/${version}`);
       showEditor(it);
-      await loadItems();
+      // 刷新列表但不重新选择条目
+      items = await api('GET', '/api/items');
+      renderList();
       await loadVersions(id);
       toast('已还原到 v' + version);
     } catch (e) { toast(e.message, 'err'); }
