@@ -281,11 +281,12 @@ func (s *Server) handleListItems(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, items)
 }
 
-// handleCreateItem POST /api/items  {title,category,value}
+// handleCreateItem POST /api/items  {title,category,note,value}
 func (s *Server) handleCreateItem(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Title    string `json:"title"`
 		Category string `json:"category"`
+		Note     string `json:"note"`
 		Value    string `json:"value"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -297,7 +298,7 @@ func (s *Server) handleCreateItem(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "标题不能为空")
 		return
 	}
-	id, err := s.app.CreateItem(s.key, body.Title, body.Category, body.Value)
+	id, err := s.app.CreateItem(s.key, body.Title, body.Category, body.Note, body.Value)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "创建失败")
 		return
@@ -334,6 +335,7 @@ func (s *Server) handleUpdateItem(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Title    string `json:"title"`
 		Category string `json:"category"`
+		Note     string `json:"note"`
 		Value    string `json:"value"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -345,7 +347,7 @@ func (s *Server) handleUpdateItem(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "标题不能为空")
 		return
 	}
-	it, err := s.app.UpdateItem(s.key, id, body.Title, body.Category, body.Value)
+	it, err := s.app.UpdateItem(s.key, id, body.Title, body.Category, body.Note, body.Value)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) || strings.Contains(err.Error(), "条目不存在") {
 			writeErr(w, http.StatusNotFound, "条目不存在")
@@ -405,7 +407,7 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "版本不存在")
 		return
 	}
-	updated, err := s.app.UpdateItem(s.key, id, it.Title, it.Category, content)
+	updated, err := s.app.UpdateItem(s.key, id, it.Title, it.Category, it.Note, content)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "还原失败")
 		return

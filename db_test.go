@@ -21,17 +21,17 @@ func TestDBVersionHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	id, err := a.CreateItem(key, "GH", "API密钥", "original_001")
+	id, err := a.CreateItem(key, "GH", "API密钥", "", "original_001")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// 第一次更新 -> v2
-	if _, err := a.UpdateItem(key, id, "GH", "API密钥", "changed_002"); err != nil {
+	if _, err := a.UpdateItem(key, id, "GH", "API密钥", "", "changed_002"); err != nil {
 		t.Fatal(err)
 	}
 	// 第二次更新 -> v3
-	if _, err := a.UpdateItem(key, id, "GH", "API密钥", "changed_003"); err != nil {
+	if _, err := a.UpdateItem(key, id, "GH", "API密钥", "", "changed_003"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -54,7 +54,7 @@ func TestDBVersionHistory(t *testing.T) {
 	if snap != "original_001" {
 		t.Fatalf("snapshot v1 = %q, want 'original_001'", snap)
 	}
-	item, err := a.UpdateItem(key, id, "GH", "API密钥", snap)
+	item, err := a.UpdateItem(key, id, "GH", "API密钥", "", snap)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,8 +88,8 @@ func TestMigrationRoundTrip(t *testing.T) {
 	if err := a.SetSalt(salt); err != nil {
 		t.Fatal(err)
 	}
-	id, _ := a.CreateItem(key, "GH", "API密钥", "v1")
-	if _, err := a.UpdateItem(key, id, "GH", "API密钥", "v2-after-two-updates"); err != nil {
+	id, _ := a.CreateItem(key, "GH", "API密钥", "", "v1")
+	if _, err := a.UpdateItem(key, id, "GH", "API密钥", "", "v2-after-two-updates"); err != nil {
 		t.Fatal(err)
 	}
 

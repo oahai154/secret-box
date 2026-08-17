@@ -6,6 +6,7 @@
   let token = null;
   let currentId = null;
   let items = [];
+  let valueVisible = false;
 
   // ---------- API 封装 ----------
   async function api(method, path, body) {
@@ -52,6 +53,62 @@
   window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
     if (document.documentElement.getAttribute('data-theme') === 'system') {
       applyTheme('system');
+    }
+  });
+
+  // ---------- 自定义分类选择器 ----------
+  const categorySelect = $('#categorySelect');
+  const categoryTrigger = categorySelect.querySelector('.custom-select-trigger');
+  const categoryValueEl = categorySelect.querySelector('.custom-select-value');
+  const categoryDropdown = categorySelect.querySelector('.custom-select-dropdown');
+  let selectedCategory = '';
+
+  function setCategory(val) {
+    selectedCategory = val;
+    const li = categoryDropdown.querySelector(`li[data-value="${CSS.escape(val)}"]`);
+    categoryDropdown.querySelectorAll('li').forEach((el) => el.classList.remove('selected'));
+    if (li) {
+      li.classList.add('selected');
+      categoryValueEl.textContent = li.textContent;
+    } else {
+      categoryValueEl.textContent = '通用';
+    }
+  }
+
+  categoryTrigger.addEventListener('click', () => {
+    categorySelect.classList.toggle('open');
+  });
+
+  categoryDropdown.addEventListener('click', (e) => {
+    const li = e.target.closest('li');
+    if (li) {
+      setCategory(li.dataset.value);
+      categorySelect.classList.remove('open');
+    }
+  });
+
+  // 点击外部关闭
+  document.addEventListener('click', (e) => {
+    if (!categorySelect.contains(e.target)) {
+      categorySelect.classList.remove('open');
+    }
+  });
+
+  // ---------- 保密内容显示/隐藏 ----------
+  const toggleValueBtn = $('#toggleValueBtn');
+  const itemValueEl = $('#itemValue');
+  const toggleText = toggleValueBtn.querySelector('.toggle-text');
+
+  toggleValueBtn.addEventListener('click', () => {
+    valueVisible = !valueVisible;
+    if (valueVisible) {
+      itemValueEl.classList.remove('value-hidden');
+      itemValueEl.classList.add('value-visible');
+      toggleText.textContent = '点击隐藏';
+    } else {
+      itemValueEl.classList.remove('value-visible');
+      itemValueEl.classList.add('value-hidden');
+      toggleText.textContent = '点击显示';
     }
   });
 
@@ -258,8 +315,14 @@
     $('#emptyHint').classList.add('hidden');
     $('#editor').classList.remove('hidden');
     $('#itemTitle').value = it.title;
-    $('#itemCategory').value = it.category || '';
+    setCategory(it.category || '');
+    $('#itemNote').value = it.note || '';
     $('#itemValue').value = it.value || '';
+    // 每次切换条目时,默认隐藏保密内容
+    valueVisible = false;
+    itemValueEl.classList.remove('value-visible');
+    itemValueEl.classList.add('value-hidden');
+    toggleText.textContent = '点击显示';
     $('#itemMeta').textContent =
       '创建 ' + formatTime(it.created_at) + ' · 修改 ' + formatTime(it.updated_at);
   }
@@ -285,24 +348,31 @@
     $('#editor').classList.remove('hidden');
     $('#historyPanel').classList.add('hidden');
     $('#itemTitle').value = '';
-    $('#itemCategory').value = '';
+    setCategory('');
+    $('#itemNote').value = '';
     $('#itemValue').value = '';
+    // 默认隐藏保密内容
+    valueVisible = false;
+    itemValueEl.classList.remove('value-visible');
+    itemValueEl.classList.add('value-hidden');
+    toggleText.textContent = '点击显示';
     $('#itemMeta').textContent = '新条目';
     $('#itemTitle').focus();
   }
 
   async function save() {
     const title = $('#itemTitle').value.trim();
-    const category = $('#itemCategory').value;
+    const category = selectedCategory;
+    const note = $('#itemNote').value;
     const value = $('#itemValue').value;
     if (!title) { toast('标题不能为空', 'err'); return; }
     try {
       if (currentId === null) {
-        const data = await api('POST', '/api/items', { title, category, value });
+        const data = await api('POST', '/api/items', { title, category, note, value });
         currentId = data.id;
         toast('已保存');
       } else {
-        await api('PUT', '/api/items/' + currentId, { title, category, value });
+        await api('PUT', '/api/items/' + currentId, { title, category, note, value });
         toast('已保存,已记录新版本');
       }
       // 保存后刷新,重新读取最新值与版本

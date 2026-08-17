@@ -21,6 +21,7 @@ type Item struct {
 	ID        int64  `json:"id"`
 	Title     string `json:"title"`
 	Category  string `json:"category"`
+	Note      string `json:"note,omitempty"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
 	Value     string `json:"value,omitempty"`
@@ -73,6 +74,7 @@ func initTables(db *sql.DB) error {
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			title TEXT NOT NULL,
 			category TEXT NOT NULL DEFAULT '',
+			note TEXT NOT NULL DEFAULT '',
 			encrypted_value TEXT NOT NULL,
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
@@ -91,7 +93,21 @@ func initTables(db *sql.DB) error {
 			return err
 		}
 	}
+	// 迁移:为已有数据库添加 note 列
+	migrateAddNoteColumn(db)
 	return nil
+}
+
+// migrateAddNoteColumn 为旧版数据库添加 note 列(若不存在)。
+func migrateAddNoteColumn(db *sql.DB) {
+	// 检查 note 列是否已存在
+	var colName string
+	err := db.QueryRow(`SELECT name FROM pragma_table_info('secret_items') WHERE name='note'`).Scan(&colName)
+	if err == nil {
+		return // 列已存在
+	}
+	// 列不存在,添加
+	_, _ = db.Exec(`ALTER TABLE secret_items ADD COLUMN note TEXT NOT NULL DEFAULT ''`)
 }
 
 // reloadSalt 从 meta 表重新读取盐值。
@@ -131,7 +147,7 @@ func (a *App) HasMasterPassword() bool {
 }
 
 // CreateItem 新增条目并写入首个版本。
-func (a *App) CreateItem(key []byte, title, category, value string) (int64, error) {
+func (a *App) CreateItem(key []byte, title, category, note, value string) (int64, error) {
 	enc, err := Encrypt(key, value)
 	if err != nil {
 		return 0, err
@@ -143,8 +159,8 @@ func (a *App) CreateItem(key []byte, title, category, value string) (int64, erro
 	}
 	defer tx.Rollback()
 	res, err := tx.Exec(
-		`INSERT INTO secret_items(title,category,encrypted_value,created_at,updated_at) VALUES(?,?,?,?,?)`,
-		title, category, enc, now, now)
+		`INSERT INTO secret_items(title,category,note,encrypted_value,created_at,updated_at) VALUES(?,?,?,?,?,?)`,
+		title, category, note, enc, now, now)
 	if err != nil {
 		return 0, err
 	}
@@ -160,7 +176,7 @@ func (a *App) CreateItem(key []byte, title, category, value string) (int64, erro
 // ListItems 返回全部条目(不含明文)及版本数量。
 func (a *App) ListItems() ([]Item, error) {
 	rows, err := a.db.Query(`
-		SELECT s.id,s.title,s.category,s.created_at,s.updated_at,
+		SELECT s.id,s.title,s.category,s.note,s.created_at,s.updated_at,
 		       (SELECT COUNT(*) FROM secret_versions v WHERE v.secret_id=s.id) AS vcount
 		FROM secret_items s ORDER BY s.updated_at DESC`)
 	if err != nil {
@@ -170,7 +186,7 @@ func (a *App) ListItems() ([]Item, error) {
 	items := []Item{}
 	for rows.Next() {
 		var it Item
-		if err := rows.Scan(&it.ID, &it.Title, &it.Category, &it.CreatedAt, &it.UpdatedAt, &it.VersionCount); err != nil {
+		if err := rows.Scan(&it.ID, &it.Title, &it.Category, &it.Note, &it.CreatedAt, &it.UpdatedAt, &it.VersionCount); err != nil {
 			return nil, err
 		}
 		items = append(items, it)
@@ -183,8 +199,8 @@ func (a *App) GetItem(key []byte, id int64) (*Item, error) {
 	var it Item
 	var enc string
 	row := a.db.QueryRow(
-		`SELECT id,title,category,encrypted_value,created_at,updated_at FROM secret_items WHERE id=?`, id)
-	if err := row.Scan(&it.ID, &it.Title, &it.Category, &enc, &it.CreatedAt, &it.UpdatedAt); err != nil {
+		`SELECT id,title,category,note,encrypted_value,created_at,updated_at FROM secret_items WHERE id=?`, id)
+	if err := row.Scan(&it.ID, &it.Title, &it.Category, &it.Note, &enc, &it.CreatedAt, &it.UpdatedAt); err != nil {
 		return nil, err
 	}
 	val, err := Decrypt(key, enc)
@@ -195,8 +211,8 @@ func (a *App) GetItem(key []byte, id int64) (*Item, error) {
 	return &it, nil
 }
 
-// UpdateItem 更新条目标题/分类/内容,并创建新版本。
-func (a *App) UpdateItem(key []byte, id int64, title, category, value string) (*Item, error) {
+// UpdateItem 更新条目标题/分类/备注/内容,并创建新版本。
+func (a *App) UpdateItem(key []byte, id int64, title, category, note, value string) (*Item, error) {
 	enc, err := Encrypt(key, value)
 	if err != nil {
 		return nil, err
@@ -218,8 +234,8 @@ func (a *App) UpdateItem(key []byte, id int64, title, category, value string) (*
 		return nil, err
 	}
 	res, err := tx.Exec(
-		`UPDATE secret_items SET title=?,category=?,encrypted_value=?,updated_at=? WHERE id=?`,
-		title, category, enc, now, id)
+		`UPDATE secret_items SET title=?,category=?,note=?,encrypted_value=?,updated_at=? WHERE id=?`,
+		title, category, note, enc, now, id)
 	if err != nil {
 		return nil, err
 	}
@@ -277,8 +293,8 @@ func (a *App) getFromTx(tx *sql.Tx, key []byte, id int64) (*Item, error) {
 	var it Item
 	var enc string
 	row := tx.QueryRow(
-		`SELECT id,title,category,encrypted_value,created_at,updated_at FROM secret_items WHERE id=?`, id)
-	if err := row.Scan(&it.ID, &it.Title, &it.Category, &enc, &it.CreatedAt, &it.UpdatedAt); err != nil {
+		`SELECT id,title,category,note,encrypted_value,created_at,updated_at FROM secret_items WHERE id=?`, id)
+	if err := row.Scan(&it.ID, &it.Title, &it.Category, &it.Note, &enc, &it.CreatedAt, &it.UpdatedAt); err != nil {
 		return nil, err
 	}
 	val, err := Decrypt(key, enc)
@@ -304,11 +320,12 @@ func (a *App) getAnyEncrypted() string {
 
 // MigrationItem 迁移文件中的单个条目(含明文密文与历史版本快照)。
 type MigrationItem struct {
-	Title    string            `json:"title"`
-	Category string            `json:"category"`
-	Value    string            `json:"value"`    // 已用主密码加密的密文
-	Created  string            `json:"created"`
-	Updated  string            `json:"updated"`
+	Title    string             `json:"title"`
+	Category string             `json:"category"`
+	Note     string             `json:"note,omitempty"`
+	Value    string             `json:"value"`    // 已用主密码加密的密文
+	Created  string             `json:"created"`
+	Updated  string             `json:"updated"`
 	Versions []MigrationVersion `json:"versions"`
 }
 
@@ -337,7 +354,7 @@ func (a *App) GetSnapshot() (*Snapshot, error) {
 	if err := a.db.QueryRow(`SELECT value FROM meta WHERE key='salt'`).Scan(&enc); err == nil {
 		snap.SaltB64 = enc
 	}
-	rows, err := a.db.Query(`SELECT id,title,category,encrypted_value,created_at,updated_at FROM secret_items ORDER BY id`)
+	rows, err := a.db.Query(`SELECT id,title,category,note,encrypted_value,created_at,updated_at FROM secret_items ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -345,7 +362,7 @@ func (a *App) GetSnapshot() (*Snapshot, error) {
 	for rows.Next() {
 		var id int64
 		var it MigrationItem
-		if err := rows.Scan(&id, &it.Title, &it.Category, &it.Value, &it.Created, &it.Updated); err != nil {
+		if err := rows.Scan(&id, &it.Title, &it.Category, &it.Note, &it.Value, &it.Created, &it.Updated); err != nil {
 			return nil, err
 		}
 		it.Versions = []MigrationVersion{}
@@ -394,8 +411,8 @@ func (a *App) RestoreFromSnapshot(snap *Snapshot) error {
 			continue
 		}
 		res, err := tx.Exec(
-			`INSERT INTO secret_items(title,category,encrypted_value,created_at,updated_at) VALUES(?,?,?,?,?)`,
-			it.Title, it.Category, it.Value, it.Created, it.Updated)
+			`INSERT INTO secret_items(title,category,note,encrypted_value,created_at,updated_at) VALUES(?,?,?,?,?,?)`,
+			it.Title, it.Category, it.Note, it.Value, it.Created, it.Updated)
 		if err != nil {
 			return err
 		}

@@ -392,6 +392,129 @@ button { font-family: inherit; }
   font-family: ui-monospace, monospace;
 }
 
+/* ---------- 自定义分类选择器 ---------- */
+.custom-select {
+  position: relative;
+  max-width: 220px;
+  min-width: 140px;
+}
+.custom-select-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  cursor: pointer;
+  transition: border-color var(--transition-base), box-shadow var(--transition-base);
+}
+.custom-select-trigger:hover {
+  border-color: var(--border-strong);
+}
+.custom-select-trigger:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.custom-select-arrow {
+  flex: none;
+  color: var(--dim);
+  transition: transform var(--transition-base);
+}
+.custom-select.open .custom-select-arrow {
+  transform: rotate(180deg);
+}
+.custom-select-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 50;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-soft);
+  padding: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity var(--transition-base), transform var(--transition-base);
+}
+.custom-select.open .custom-select-dropdown {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.custom-select-dropdown li {
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+.custom-select-dropdown li:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.custom-select-dropdown li.selected {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ---------- 保密内容显示/隐藏 ---------- */
+.value-toggle-bar {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.value-hidden {
+  filter: blur(8px);
+  user-select: none;
+  pointer-events: none;
+  opacity: 0.4;
+  transition: filter var(--transition-base), opacity var(--transition-base);
+}
+.value-visible {
+  filter: none;
+  user-select: auto;
+  pointer-events: auto;
+  opacity: 1;
+}
+
+/* ---------- 备注文本框 ---------- */
+.note-textarea {
+  width: 100%;
+  min-height: 80px;
+  max-height: 200px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+  resize: vertical;
+  transition: border-color var(--transition-base), box-shadow var(--transition-base);
+}
+.note-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.note-textarea::placeholder {
+  color: var(--faint);
+}
+
 #itemValue {
   width: 100%;
   min-height: 240px;
