@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="system">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SecretBox · 隐私保险箱</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- ===== 解锁/设置主密码页 ===== -->
+  <div id="authView" class="auth-view hidden">
+    <div class="auth-card">
+      <div class="auth-mark">🔒</div>
+      <h1>SecretBox</h1>
+      <div class="subtitle" id="authSubtitle">隐 私 保 险 箱</div>
+      <input id="authPassword" type="password" placeholder="输入主密码" autocomplete="off">
+      <input id="authPassword2" type="password" placeholder="确认主密码" class="hidden" autocomplete="off">
+      <button id="authBtn" class="btn btn-primary">解锁</button>
+      <div id="authError" class="auth-error"></div>
+    </div>
+  </div>
+
+  <!-- ===== 主界面 ===== -->
+  <div id="mainView" class="main-view hidden">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-badge">🔒</span>
+        <span>SecretBox</span>
+      </div>
+      <div class="topbar-actions">
+        <div class="theme-switch" id="themeSwitch" role="group" aria-label="主题切换">
+          <button class="theme-opt" data-theme-opt="system" title="跟随系统">
+            <span class="ico">◐</span><span class="label">系统</span>
+          </button>
+          <button class="theme-opt" data-theme-opt="light" title="浅色">
+            <span class="ico">☀</span><span class="label">浅色</span>
+          </button>
+          <button class="theme-opt" data-theme-opt="dark" title="深色">
+            <span class="ico">☾</span><span class="label">深色</span>
+          </button>
+        </div>
+        <button id="lockBtn" class="btn btn-ghost btn-sm" title="锁定">🔓 锁定</button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <!-- 左侧:条目列表 -->
+      <aside class="sidebar">
+        <div class="sidebar-head">
+          <label class="search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input id="searchInput" type="text" placeholder="搜索标题/分类…">
+          </label>
+          <button id="newBtn" class="btn btn-primary btn-sm">＋ 新增</button>
+        </div>
+        <ul id="itemList" class="item-list"></ul>
+      </aside>
+
+      <!-- 右侧:编辑区 + 版本历史 -->
+      <main class="content">
+        <div id="emptyHint" class="empty-hint">
+          <span class="big">🗄</span>
+          从左侧选择或新增一个条目
+        </div>
+
+        <div id="editor" class="editor hidden">
+          <div class="editor-row">
+            <label class="field-label" for="itemTitle">标题</label>
+            <input id="itemTitle" type="text" placeholder="例:GitHub 密钥">
+          </div>
+          <div class="editor-foot">
+            <select id="itemCategory">
+              <option value="">通用</option>
+              <option value="账号密码">账号密码</option>
+              <option value="API密钥">API 密钥</option>
+              <option value="应用密钥">应用密钥</option>
+              <option value="私钥">私钥</option>
+              <option value="其他">其他</option>
+            </select>
+            <span id="itemMeta" class="item-meta"></span>
+          </div>
+          <div class="editor-row">
+            <label class="field-label" for="itemValue">保密内容</label>
+            <textarea id="itemValue" placeholder="粘贴或输入要保密的内容…" spellcheck="false"></textarea>
+          </div>
+          <div class="editor-actions">
+            <button id="saveBtn" class="btn btn-primary">💾 保存</button>
+            <button id="deleteBtn" class="btn btn-danger">🗑 删除</button>
+            <span class="spacer"></span>
+            <span class="hint-hk">Ctrl + S 快速保存</span>
+          </div>
+        </div>
+
+        <div id="historyPanel" class="history-panel hidden">
+          <h3>历史版本</h3>
+          <div id="historyList" class="history-list"></div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="app.js"></script>
+</body>
+</html>
