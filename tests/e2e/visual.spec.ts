@@ -68,4 +68,18 @@ test.describe("视觉对照（与 Go 版基准）", () => {
     const check = expectSameAsBaseline(page, "main.png");
     await check();
   });
+
+  test("新增条目页", async ({ page }) => {
+    injectMockIpc(page);
+    await page.goto("/");
+    await page.fill("#authPassword", "golden-test-password");
+    await page.click("#authBtn");
+    await expect(page.locator("#itemList .item")).toHaveCount(3);
+    await page.waitForTimeout(2500); // 等 toast 消失
+    await page.click("#newBtn");
+    await expect(page.locator("#itemMeta")).toHaveText("新条目");
+    await page.waitForTimeout(400); // 等进场动画结束
+    const check = expectSameAsBaseline(page, "new.png");
+    await check();
+  });
 });

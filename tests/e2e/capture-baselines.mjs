@@ -75,6 +75,13 @@ try {
   await page.screenshot({ path: path.join(ROOT, "tests", "e2e", "baselines", "main.png") });
   console.log("已截取列表页基准 main.png");
 
+  // 新增模式（清空编辑区）
+  await page.click("#newBtn");
+  await page.waitForFunction(() => document.querySelector("#itemMeta")?.textContent === "新条目");
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: path.join(ROOT, "tests", "e2e", "baselines", "new.png") });
+  console.log("已截取新增页基准 new.png");
+
   await browser.close();
 } finally {
   try {

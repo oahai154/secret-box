@@ -7,10 +7,16 @@
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
-use rusqlite::Connection;
+use chrono::{Local, SecondsFormat};
+use rusqlite::{Connection, Transaction};
 use serde::{Deserialize, Serialize};
 
 use crate::crypto::{self, CryptoError};
+
+/// 当前时间，RFC3339 秒精度，与 Go 版 nowISO() 格式一致。
+fn now_iso() -> String {
+    Local::now().to_rfc3339_opts(SecondsFormat::Secs, false)
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum SecretboxError {
@@ -139,6 +145,11 @@ impl Db {
 
     pub fn db_path(&self) -> &str {
         &self.db_path
+    }
+
+    /// 当前盐值（base64，未设置主密码时返回 None）。
+    pub fn salt_b64(&self) -> Option<String> {
+        self.salt.as_ref().map(|s| BASE64.encode(s))
     }
 
     /// 从 meta 表重新读取盐值。
@@ -342,5 +353,108 @@ impl Db {
                 rusqlite::Error::QueryReturnedNoRows => SecretboxError::ItemNotFound,
                 other => other.into(),
             })
+    }
+
+    /// 读取单条的元数据与密文（事务内版本，供写路径复用）。
+    fn query_item_in_tx(tx: &Transaction, id: i64) -> Result<(Item, String), SecretboxError> {
+        tx.query_row(
+            "SELECT id, title, category, note, encrypted_value, created_at, updated_at
+             FROM secret_items WHERE id = ?1",
+            [id],
+            |row| {
+                Ok((
+                    Item {
+                        id: row.get(0)?,
+                        title: row.get(1)?,
+                        category: row.get(2)?,
+                        note: row.get(3)?,
+                        created_at: row.get(5)?,
+                        updated_at: row.get(6)?,
+                        value: String::new(),
+                        version_count: 0,
+                    },
+                    row.get::<_, String>(4)?,
+                ))
+            },
+        )
+        .map_err(|err| match err {
+            rusqlite::Error::QueryReturnedNoRows => SecretboxError::ItemNotFound,
+            other => other.into(),
+        })
+    }
+
+    // ---------- 写路径（与 Go 版 CreateItem/UpdateItem/DeleteItem 对齐） ----------
+
+    /// 新增条目并写入首个历史版本，返回新条目 ID。
+    pub fn create_item(
+        &self,
+        key: &[u8],
+        title: &str,
+        category: &str,
+        note: &str,
+        value: &str,
+    ) -> Result<i64, SecretboxError> {
+        let encrypted = crypto::encrypt(key, value)?;
+        let now = now_iso();
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
+            "INSERT INTO secret_items(title,category,note,encrypted_value,created_at,updated_at)
+             VALUES(?1,?2,?3,?4,?5,?5)",
+            rusqlite::params![title, category, note, encrypted, now],
+        )?;
+        let id = tx.last_insert_rowid();
+        tx.execute(
+            "INSERT INTO secret_versions(secret_id,version,encrypted_snapshot,created_at)
+             VALUES(?1,1,?2,?3)",
+            rusqlite::params![id, encrypted, now],
+        )?;
+        tx.commit()?;
+        Ok(id)
+    }
+
+    /// 更新条目标题/分类/备注/内容，并创建新历史版本，返回解密后的最新条目。
+    pub fn update_item(
+        &self,
+        key: &[u8],
+        id: i64,
+        title: &str,
+        category: &str,
+        note: &str,
+        value: &str,
+    ) -> Result<Item, SecretboxError> {
+        let encrypted = crypto::encrypt(key, value)?;
+        let now = now_iso();
+        let tx = self.conn.unchecked_transaction()?;
+
+        // 计算下一版本号
+        let next_version: i64 = tx.query_row(
+            "SELECT COALESCE(MAX(version),0)+1 FROM secret_versions WHERE secret_id = ?1",
+            [id],
+            |row| row.get(0),
+        )?;
+        tx.execute(
+            "INSERT INTO secret_versions(secret_id,version,encrypted_snapshot,created_at)
+             VALUES(?1,?2,?3,?4)",
+            rusqlite::params![id, next_version, encrypted, now],
+        )?;
+        let affected = tx.execute(
+            "UPDATE secret_items SET title=?1, category=?2, note=?3, encrypted_value=?4, updated_at=?5
+             WHERE id=?6",
+            rusqlite::params![title, category, note, encrypted, now, id],
+        )?;
+        if affected == 0 {
+            return Err(SecretboxError::ItemNotFound);
+        }
+        let (mut item, item_encrypted) = Self::query_item_in_tx(&tx, id)?;
+        item.value = crypto::decrypt(key, &item_encrypted)?;
+        tx.commit()?;
+        Ok(item)
+    }
+
+    /// 删除条目（历史版本因 ON DELETE CASCADE 一并删除）。
+    pub fn delete_item(&self, id: i64) -> Result<(), SecretboxError> {
+        self.conn
+            .execute("DELETE FROM secret_items WHERE id = ?1", [id])?;
+        Ok(())
     }
 }

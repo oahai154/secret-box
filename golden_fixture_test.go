@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"testing"
 )
 
@@ -343,6 +345,45 @@ func TestGoldenVerifyDump(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	fmt.Printf("读回验证已写出: %s\n", outPath)
+
+	// 可选：与期望文件逐字段比对（Rust 写路径的跨语言回环验收）
+	if expectPath := os.Getenv("SECRETBOX_VERIFY_EXPECT"); expectPath != "" {
+		expectData, err := os.ReadFile(expectPath)
+		if err != nil {
+			t.Fatalf("读取期望文件: %v", err)
+		}
+		var expected struct {
+			Salt  string       `json:"salt"`
+			Items []GoldenItem `json:"items"`
+		}
+		if err := json.Unmarshal(expectData, &expected); err != nil {
+			t.Fatalf("期望文件格式无效: %v", err)
+		}
+		if dump.Salt != expected.Salt {
+			t.Fatalf("盐值不一致: got %q want %q", dump.Salt, expected.Salt)
+		}
+		canonical := func(items []GoldenItem) []GoldenItem {
+			cp := append([]GoldenItem(nil), items...)
+			sort.Slice(cp, func(i, j int) bool { return cp[i].ID < cp[j].ID })
+			for k := range cp {
+				vs := append([]GoldenVersion(nil), cp[k].Versions...)
+				sort.Slice(vs, func(i, j int) bool { return vs[i].Version < vs[j].Version })
+				cp[k].Versions = vs
+			}
+			return cp
+		}
+		got := canonical(dump.Items)
+		want := canonical(expected.Items)
+		if len(got) != len(want) {
+			t.Fatalf("条目数量不一致: got %d want %d", len(got), len(want))
+		}
+		for i := range got {
+			if !reflect.DeepEqual(got[i], want[i]) {
+				t.Fatalf("条目 %d 数据不一致:\n got: %+v\nwant: %+v", got[i].ID, got[i], want[i])
+			}
+		}
+		fmt.Printf("期望比对通过: %d 个条目逐字段一致\n", len(got))
+	}
 }
 
 // TestGoldenVerifyRustVectors 用 Go 版 Decrypt 解密 Rust 侧产生的加密向量，

@@ -26,10 +26,15 @@ pub fn run(db_path: &str) -> Result<(), String> {
             unlock,
             lock,
             setup_password,
+            verify_password,
             list_items,
             get_item,
+            create_item,
+            update_item,
+            delete_item,
             list_versions,
-            get_settings
+            get_settings,
+            update_settings
         ])
         .run(tauri::generate_context!())
         .map_err(|err| format!("Tauri 应用运行异常: {err}"))?;
@@ -104,6 +109,72 @@ fn get_item_impl(state: &AppState, id: i64) -> Result<Item, String> {
 fn list_versions_impl(state: &AppState, id: i64) -> Result<Vec<Version>, String> {
     require_unlocked(state)?;
     with_db(state, |db| db.list_versions(id).map_err(|err| err.to_string()))
+}
+
+/// 校验主密码（用于删除等敏感操作的确认），不改变当前会话。
+fn verify_password_impl(state: &AppState, password: &str) -> Result<(), String> {
+    with_db(state, |db| {
+        db.unlock(password).map(|_| ()).map_err(|err| err.to_string())
+    })
+}
+
+/// 新增条目，返回新 ID。未解锁时拒绝。
+fn create_item_impl(
+    state: &AppState,
+    title: &str,
+    category: &str,
+    note: &str,
+    value: &str,
+) -> Result<i64, String> {
+    let key = require_unlocked(state)?;
+    let trimmed = title.trim();
+    if trimmed.is_empty() {
+        return Err("标题不能为空".to_string());
+    }
+    with_db(state, |db| {
+        db.create_item(&key, trimmed, category, note, value)
+            .map_err(|err| err.to_string())
+    })
+}
+
+/// 更新条目，返回解密后的最新条目。未解锁时拒绝。
+#[allow(clippy::too_many_arguments)]
+fn update_item_impl(
+    state: &AppState,
+    id: i64,
+    title: &str,
+    category: &str,
+    note: &str,
+    value: &str,
+) -> Result<Item, String> {
+    let key = require_unlocked(state)?;
+    let trimmed = title.trim();
+    if trimmed.is_empty() {
+        return Err("标题不能为空".to_string());
+    }
+    with_db(state, |db| {
+        db.update_item(&key, id, trimmed, category, note, value)
+            .map_err(|err| err.to_string())
+    })
+}
+
+/// 删除条目（历史版本一并删除）。未解锁时拒绝。
+fn delete_item_impl(state: &AppState, id: i64) -> Result<(), String> {
+    let _key = require_unlocked(state)?;
+    with_db(state, |db| {
+        db.delete_item(id).map_err(|err| err.to_string())
+    })
+}
+
+/// 写入设置项。
+fn update_settings_impl(state: &AppState, settings: &BTreeMap<String, String>) -> Result<(), String> {
+    with_db(state, |db| {
+        for (key, value) in settings {
+            db.set_setting(key, value)
+                .map_err(|_err| format!("保存设置失败: {key}"))?;
+        }
+        Ok(())
+    })
 }
 
 /// 读取全部设置，补充默认值（与 Go 版 handleGetSettings 一致）。
@@ -187,6 +258,47 @@ fn get_settings(state: State<AppState>) -> Result<BTreeMap<String, String>, Stri
     get_settings_impl(&state)
 }
 
+#[tauri::command]
+fn verify_password(state: State<AppState>, password: String) -> Result<(), String> {
+    verify_password_impl(&state, &password)
+}
+
+#[tauri::command]
+fn create_item(
+    state: State<AppState>,
+    title: String,
+    category: String,
+    note: String,
+    value: String,
+) -> Result<i64, String> {
+    create_item_impl(&state, &title, &category, &note, &value)
+}
+
+#[tauri::command]
+fn update_item(
+    state: State<AppState>,
+    id: i64,
+    title: String,
+    category: String,
+    note: String,
+    value: String,
+) -> Result<Item, String> {
+    update_item_impl(&state, id, &title, &category, &note, &value)
+}
+
+#[tauri::command]
+fn delete_item(state: State<AppState>, id: i64) -> Result<(), String> {
+    delete_item_impl(&state, id)
+}
+
+#[tauri::command]
+fn update_settings(
+    state: State<AppState>,
+    settings: BTreeMap<String, String>,
+) -> Result<(), String> {
+    update_settings_impl(&state, &settings)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -207,7 +319,18 @@ mod tests {
         ));
         std::fs::create_dir_all(&tmp).unwrap();
         let db_copy = tmp.join("golden.db");
-        std::fs::copy(fixture, &db_copy).unwrap();
+        // Windows 上杀毒软件可能瞬时锁住新写入的文件，重试几次
+        let mut copied = false;
+        for _ in 0..5 {
+            match std::fs::copy(fixture, &db_copy) {
+                Ok(_) => {
+                    copied = true;
+                    break;
+                }
+                Err(_) => std::thread::sleep(std::time::Duration::from_millis(200)),
+            }
+        }
+        assert!(copied, "复制 fixture 失败");
         (open_state(db_copy.to_str().unwrap()).unwrap(), tmp)
     }
 

@@ -35,10 +35,22 @@ export interface SecretboxIpc {
   unlock(password: string): Promise<void>;
   lock(): Promise<void>;
   setupPassword(password: string): Promise<void>;
+  verifyPassword(password: string): Promise<void>;
   listItems(): Promise<Item[]>;
   getItem(id: number): Promise<Item>;
+  createItem(input: ItemInput): Promise<number>;
+  updateItem(id: number, input: ItemInput): Promise<Item>;
+  deleteItem(id: number): Promise<void>;
   listVersions(id: number): Promise<Version[]>;
   getSettings(): Promise<Settings>;
+  updateSettings(updates: Settings): Promise<void>;
+}
+
+export interface ItemInput {
+  title: string;
+  category: string;
+  note: string;
+  value: string;
 }
 
 function createTauriIpc(): SecretboxIpc {
@@ -53,10 +65,30 @@ function createTauriIpc(): SecretboxIpc {
     setupPassword: async (password: string) => {
       await invoke("setup_password", { password });
     },
+    verifyPassword: async (password: string) => {
+      await invoke("verify_password", { password });
+    },
     listItems: () => invoke<Item[]>("list_items"),
     getItem: (id: number) => invoke<Item>("get_item", { id }),
+    createItem: (input: ItemInput) =>
+      invoke<number>("create_item", {
+        title: input.title,
+        category: input.category,
+        note: input.note,
+        value: input.value,
+      }),
+    updateItem: (id: number, input: ItemInput) =>
+      invoke<Item>("update_item", {
+        id,
+        title: input.title,
+        category: input.category,
+        note: input.note,
+        value: input.value,
+      }),
+    deleteItem: (id: number) => invoke<void>("delete_item", { id }),
     listVersions: (id: number) => invoke<Version[]>("list_versions", { id }),
     getSettings: () => invoke<Settings>("get_settings"),
+    updateSettings: (updates: Settings) => invoke<void>("update_settings", { settings: updates }),
   };
 }
 

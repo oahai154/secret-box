@@ -128,7 +128,7 @@
   {#if !unlocked}
     <AuthView {hasPassword} onUnlocked={handleUnlocked} onSetupCompleted={handleSetupCompleted} />
   {:else}
-    <MainView {themeMode} {applyTheme} onLock={lock} onToast={showToast} />
+    <MainView {settings} {themeMode} {applyTheme} onLock={lock} onToast={showToast} />
   {/if}
 {/if}
 

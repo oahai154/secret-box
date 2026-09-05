@@ -45,6 +45,14 @@ export function injectMockIpc(page: Page): void {
   const code = `
     window.__SECRETBOX_IPC__ = (() => {
       const fix = ${JSON.stringify(fix)};
+      const settings = {
+        auto_lock_seconds: "120",
+        delete_requires_password: "true",
+        delete_version_requires_password: "true",
+      };
+      let nextId = Math.max(...fix.items.map((i) => i.id)) + 1;
+      const store = new Map(fix.items.map((it) => [it.id, JSON.parse(JSON.stringify(it))]));
+      const nowIso = () => new Date().toISOString();
       return {
         getStatus: async () => ({ has_password: true, unlocked: false }),
         unlock: async (password) => {
@@ -54,8 +62,11 @@ export function injectMockIpc(page: Page): void {
         setupPassword: async (password) => {
           if (!password || password.trim().length < 4) throw "主密码至少 4 个字符";
         },
+        verifyPassword: async (password) => {
+          if (password !== fix.password) throw "密码不正确";
+        },
         listItems: async () =>
-          fix.items.map((it) => ({
+          [...store.values()].map((it) => ({
             id: it.id,
             title: it.title,
             category: it.category,
@@ -65,25 +76,50 @@ export function injectMockIpc(page: Page): void {
             version_count: it.version_count,
           })),
         getItem: async (id) => {
-          const it = fix.items.find((x) => x.id === id);
+          const it = store.get(id);
           if (!it) throw "条目不存在";
           return { ...it };
         },
-        listVersions: async (id) => {
-          const it = fix.items.find((x) => x.id === id);
+        createItem: async (input) => {
+          const id = nextId++;
+          const now = nowIso();
+          store.set(id, {
+            id,
+            ...input,
+            created_at: now,
+            updated_at: now,
+            version_count: 1,
+            versions: [{ version: 1, created_at: now, snapshot: input.value }],
+          });
+          return id;
+        },
+        updateItem: async (id, input) => {
+          const it = store.get(id);
           if (!it) throw "条目不存在";
-          return it.versions.map((v) => ({
+          Object.assign(it, input);
+          it.updated_at = nowIso();
+          it.version_count = (it.version_count || 0) + 1;
+          it.versions = it.versions || [];
+          it.versions.push({ version: it.version_count, created_at: it.updated_at, snapshot: input.value });
+          return { ...it };
+        },
+        deleteItem: async (id) => {
+          store.delete(id);
+        },
+        listVersions: async (id) => {
+          const it = store.get(id);
+          if (!it) throw "条目不存在";
+          return (it.versions || []).map((v) => ({
             id: v.version,
             secret_id: id,
             version: v.version,
             created_at: v.created_at,
           }));
         },
-        getSettings: async () => ({
-          auto_lock_seconds: "120",
-          delete_requires_password: "true",
-          delete_version_requires_password: "true",
-        }),
+        getSettings: async () => ({ ...settings }),
+        updateSettings: async (updates) => {
+          Object.assign(settings, updates);
+        },
       };
     })();
   `;
