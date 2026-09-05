@@ -1,0 +1,18 @@
+[package]
+name = "secretbox"
+version = "0.1.0"
+edition.workspace = true
+description = "SecretBox 桌面应用（Tauri 2）"
+
+[lib]
+name = "secretbox_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+secretbox-core = { path = "../crates/secretbox-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }

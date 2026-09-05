@@ -11,3 +11,14 @@ secretbox.exe
 # 本地辅助文件
 .workbuddy/
 *.exe~
+
+# Rust / Node 构建产物
+target/
+node_modules/
+dist/
+
+# 黄金样本数据库是公开测试数据,需要提交（白名单放行）
+!crates/secretbox-core/tests/fixtures/golden.db
+
+# Tauri 自动生成的权限 schema
+src-tauri/gen/schemas/

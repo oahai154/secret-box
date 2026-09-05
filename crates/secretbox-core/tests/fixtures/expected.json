@@ -1,0 +1,98 @@
+{
+  "password": "golden-test-password",
+  "salt": "1s3wnY4LRO5eflwzcF5woAPgH8zJQAWHKqL6dV7tAho=",
+  "kdf_vector": {
+    "password": "golden-test-password",
+    "salt_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "key_hex": "b90ae8fbe4b574a6efd06bdf384b9a8528c3bbf2369f0c2730607bc572e63b07"
+  },
+  "decrypt_vectors": [
+    {
+      "plaintext": "",
+      "cipher": "2TPNIBGRnC5VkVpBUy55kySLgb2nKBwbpvXGsg=="
+    },
+    {
+      "plaintext": "hello",
+      "cipher": "BRisdUIgkysT5eVHi7VzennJ9aYaNWVs1pwEwt3PiM7c"
+    },
+    {
+      "plaintext": "中文明文测试 🦀",
+      "cipher": "ZYuEtRn6IrcwoPnsRGyYHOYAFRH+OcpUdbDkDUUeKtjY/4SprBgolpwqBSu/rbDOUakm"
+    },
+    {
+      "plaintext": "line1\nline2\r\nline3",
+      "cipher": "F6iOBM4eU3NhwxmOuxxJUl6OIOiaLORiMX8QGymjuicSMDxcpeUv7wdOHjZ7Zw=="
+    },
+    {
+      "plaintext": "引号\"单引号'反斜杠\\斜杠/制表\t含NUL\u0000字符",
+      "cipher": "grt9QkSI9uBLlQtgzsi1S7sOqtCkfvqKS1Q4PsVbnw/6NJGXFp0eM1Anog1L5T3Y1YX3QCTfOrkMtc64AeP46YQXsquPr1CItMtvSmhDd85CtA=="
+    },
+    {
+      "plaintext": "长文本 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "cipher": "dDg6A0PFLd0wtsyAtAVDetBzpWpoeBDTRQfNdNvYfTFgWb7txGR0BQq4pPEck5yKtysy6pc5Y2Vf0XgECXgVZDzDkQ98+FqDoXLkY3KFUUu+Au8ChkLHSsePHkDMyG9IUhw1TDSFsaInSxp4vODfse5K5GD2VL01qlxtWZWsaopy9YPyscLuIaoEw7pMsGApEdPUhItEEeDLNqEL/EAnMtfiW72DoawdJKDAaWO5wEUnNY9BFzfASXCGyuHy5i2gfcsjRhvnjdyvJT28Qvjr5rxm3PHoj5xH+6CMDY1hhnOVfvQTNjuXWtJoAoIXuZ5Hi6LVn4UaZB2c1B7EiGcEJ5C5cozaDGkCOoEy0ykY79lXY+4H94Bl189rZRjsOfLGG2F/wFuaz7ylsIURfPoqn5ul99iG3zx3n2H4NJfyfjWUOf8eaAl75vE/M3+4YuY7ULynrXwnv0mkqO5G0yjR+NCCsZLuf1H1Is0oVNFKfqoOzWScNP2NmIzh+sdNhTY7etqjKVv2pLey52QJFdVaj0DOpoH6MY/7dasZd0orGW32ROqGLkxbNneGAfILbRujFiR8uQL6D7dLkn9rMJ8CtkHIGr4cEf52NiS29+uYjxrbfz+Xc1zgvuqXsIbvzzHggLGm3/ODlXHV7Yq8guhJxJhJaAihJr67/GkLBcKC8BhiRQAYuk2y93m4EtpNEvRkElbxXf3hBO3n2O+e4MPdnKb9HJKiTbRw+I7zcYeGBR+x+9aykU/7AxCwGuVzDIfZufogLWxGBXrgGazDE9ovBe4Wh7Leh4xMIQpZegu/0K+bvZ4XvmC7zI2h/H5eei0JRuAkLWUVxo/HqeBfB4mXd6LxPCIbTFpcpRinA1Li5+Y2cSNGjMDGNVPXymDRKTexAq9Yja3eycaJJEAtpk8E9HeHQbObsGJiZnTrPYKKDm6WlvHj8Du5F3Nj6eS+T1PYLray5mqmn4BzgbtrWvwf8Rb5B429FXj4hLcu4pWcI1NnVqz68s1YXvMJ8A2WWEppTaIa+Stt3BquEkPn/HVKq3MPhtLHbKa0i+FeGBNdSEnpBqebB89vUdNKvrxt3sD1maanHyh/MwxqNlCELfhM0qveSCJzmVY+mHdbS/3j6YnRXck99LIW3mN9e6dX5E0wJk7awRZ4PrfMkHJ7Q7cLzexsm5WurvntWkZzkHhF7Bx0lIFnXIlDBO1HYwaWByBfZkYT1wwnrzSUe3ayukNoGhIR1OPZ7im95XMzL2gnKRvMv3l7SYsoH6d6beXIYTvwqGoP+DA5/N1X36puYn4Fxfc8FPXvzg+aVuFmIYPUw5Gtc0WgJta59VQjpMEK5kCNEHg/m/AV5I+QxCglAT6X/cmhLpcWyWtCt7WyqnalWflG6XsO1CU11cVnbVWE+ju2/NKoBt9/HZG9wbQAWn+3fgaxMjXNXIS7vb3HekO3UHSJT1Lxw2tPGgz5MJlEdxMPpo/DNJ8bRGIHFEtl70qv+F00w/ZXz2qbpSjKCCTTXSlpbfvPTqtX2tCNzNwEGMLCr19fml0/Bn0nOf4GJ2TXREGeo81dmFGNrra3m5NxDGgYrRLlS881mU5T5AQADVVjx7hcpihxZt/kRk8reF2kXN4QR1ZwtYMB0vtDijXFgSiI0uoISfTEYfl5FtWpl30UfdP4wHSy71/XDzKZfeADPFUmvxQt+Z8Pe6wzXrtMrHBBgjEwy7KWb6EABTE+Q2FRhZLwZBwNKfmOhtgklMciedCNq6UYBo6xPW4i4eV1w1X0cwfmIN9fqejQgn3Cyu88Mh7MZ1wG/x2th+PFsQ+YdinqptOp/k6T4rwk+VZmVo5fzf4n+O4LjVCycd+63+h5H5M/WzKaH7X4cCy56SRm5KfxSsiiDKN2TEGxL5sonKJZ6lzj8TCIasYz7mvJFcnQ9zWcw/HF/tey87MQAbH+biMqdvdEIFwW3XF8+INJm+bo/b02OHQdkj7albedCrfWMKn0ah5ErXcHESzOo3cJeFQ7qiUYfBp5F9SASJ232cAl5f0UOz1aZ6yREjUJvlRJAUH7pK7l5jsWEeP1i7YA2ynH0TJ/QA+47+yoaKraDQ+IS0+sg4rxlzdpsjJW3AaXsVJdYVOgj+MwN7VyelJBgIoen6bXsQ30fln0LwP3Vbkq3Re+pipCIu5gbgXYuLB2IFawn99Ob8k1qZkTkF28/nLmYyVvYyx6/fGBmPp/VnJqBJQou5re2OmFj3ZHR5dfrmf0B6hEeB4V9Fx+JheC9uehG9lMUHBKOG0ZKve5dGpuzEoujdSKQqK+FVBV4aGhgvigCw5THA9796FH1dYPkb1T999iUbn1FYJFEpgtIcI1a+yvC5sNzqH+7/HoKbOsw54u6SapqWUoPbyrQjz45hN8AqaBzbtpApwsSdEFNldV5llKbPgdsk68r21uPwXnPh3/bM0rmyv7vth4kQLc+gZRnOqlarbWQpFJksMaPP8Zmz9woMMijQz9h3IbLyykhpDgbNg1r4Yha3YM3RmL6BP2Uy5kvtCMzEO8oi9XW6zYbWPZz0F04MGAPGtXBkL3JE57FH0xzIA4cmFyT32sPyCdhwhREatBkWlfUQG6puBnAWKjlEbygtv3i+kRWnUMsDsnCS/ckghk+O8PsVMJCkjIWVzh0r2isWWI+v/atL+2NssBHFvn+Isy7xdEyBAF8X3YXYG/VE5covXGw2jbE4jSulslT028JqtRMH/HfR45q/u2mpM3F1nUI54hgQc0BOzCOiSOPglocKYkRnubR/OyxaES9pFo5C1IEOz384xhLy9BxMqtWfQ9xnuiM0nxWouWMRXLwqDaBs0CFHThGOOOLbC9Ps3EQyNNba1LsstvrHLHO66myEmjwDCsVhwOEzFe+Kr6nxjVflEch8rMPHDQCHGJpfUK2YmLBqLYIlNCA4/fE1lugmfAl93K2258eT4XpQ9Tad1aoa+7QyP3oHFrwAqa8HpsA6ss/FFiKmN5nlDrbXJm5ER4fieNRmX/WOA+/U6er40flUGHP+4bc7yc5tO9cRzBiPwuq25IRkd0cUZix5Wo5rAtuVL4hN1stdLmPzoNUTvqjAyVKccwxuZXN112YYtk5ZKaXb37MVMF538U8epo8G7LL3iNtISgzID7gUAg17LI9PKpYOAO88hDVvWpKu6G8AAufmCCJa2LbNTCQdZPY8a3pXMrTJ06++hdxfPITLNm6V6kjIxvSFarfAIwz798SJ5qw64Go4TXSurzgmiDhewQUFy2JBDYNjsjnzjQvr8yLSftjHCqWN5zOQfGXSJ70balcolcjKFECsnZMknBKOdDqdUKwzL8zjome41XG8SYPuhsr7uxbx+j7lk95Yk+jy9Gs5UQ9SsG61/z6ISGZgWeLkF5/caLFPDsdXn8TMPbbbJUmHwlb/HrFPQOBmCi5ez+6RALmXY94P4NaAPfGpnFkXxEFtd995RPhaG88iulgTsyyMh5IoxIfVo34C+2Tt6f2tGPABF2MBMfNZeEtUkV6HhFojP7vNCbogpKWKJBBVo16D3Q1PlQytj/cqd/bB+r2lWd6GZtwnO7VbYDMrfzQPHbYIrAYwDQrUm9kekMmPdRCaKNzZ1j+GrXw2dZQuSahF5cDS056T0IoYlGgrKVjQdHaPZ5O8thZKn+LI60mmcRJXd96lUqMqlbwmFOe1B4NUdPSbTfJeCse99/mTvJUMxRVrZ7eHwxO8RpVgMkwFuS3l2jYqd221ObDP13VmgG4jK1WC5SCTdTMTbGclqWbBd1P59LAFKKqHLJjHr8Wc3C7quWahvPG+XMJC0opH0QrZ9yTtwffUWjWDFd5J7IKuLb4uEmuwe/nXp5XflkUmUHCbCL0a6ACK5mePfUaU/TnL/R6iWQx/rWelm7X116SyJSwEQoE4DWyIjP2Vr8/f6DrQjwSZQMgrP9Ca+pkAtL2cDQPfjIR+I54F3f4ZjXA23Lg5hCF+KsErYaDhiKRuhkAlAyozv6CJAsYez9QeUcE8wWT54A3Qk2sODHtCCbIFjqRBCfgpVRXC//fy6gzP76dXkLfr2W82mQsSLtbfmlq0y0Ny+NsIWrLo1UV7BkT9iOS/dC7MgBvA7xLIc9c9EQ7XNCseU8hayblCyS20NNYOmieEypks1O2TuQFwtFOX9GbUoPiTcCOsKzv5E1Wshdmuyu7oej9gN1kBpC08aMPfS7H77BXMWbMa094FSODd66RfP1QyLdWPRV7sQsgkDgSA08tZSOTUT+lWRQb1Qwg3DxTVsT9El1Bw6QNJqh1EB+g6ZWQiJAf+Q7dFgQaAO+6qxZXDy2YDAtPuXqMC+rAYSVRiV+bNkVV5mX+DPTt8bhD+HxY2x+rjV8aB4z8uw8R3cyRHNDNPCL7JffMkC8f4c0UpGKtpSLHqN/NBax8fZCF/pCOhg09vsqHyhtjcY6naZcnEyZtp30Y+7WEJ4tJeVPnioGDQOicRcyMq8jAoLsynaLDEPKbfo4z7LmXbpBcSwNJWTwhJoFuCaRyAFgG/DWGJx5vgrL+pdBqNpPpeVpTW3MvaEyTb+jvsWBGw0QwLtYrtWtsoVJblo+m/hLlgRHzo1sk2/YEZgDyZOYBc1rJe8iUpjjru2TWA28Y1mEjF/68o3Sh9bVwLny5gx7D5tIH905d14+6FH3O7i9n/tW7FhK8k4vxavNPGFyE6ZCPfK+WoyyKB5+YoGxqFVZFKHXp4kx2SRkba+KZ3Uf0C7RxuOXe9A996OmQ8jnK7tTm1Z8piMSjE5sBjlncq9CZQIvEJ4C3TD85X55IAkuFRNya0LaxIuAsBSfgDsU0O/Tg20K7qmKfaGZ/sB7KgpUIxsiDVT0mHgT+bFAaA5qJyvnmRIMpKjdG469Vab2JctlhOvdKLy2KayZWH560Nd5CYhMAOkIPIjQbpvKnG2ZZmNn3h0JCClBfwQf1mYdePG+Soy2I4t2rm4qWicuJvqbZ7u8oISyG+a2x9S2E6KJISm3k5uJmDwo6FLd/4Z6XCWukQ6WiyK7wBLDrU5XBlTLkESn+jS3W7oQh9ObfPBDXvUeLgCmu2FqYIexjn1dU6EMHtcD1oj6IK7G/Ofbu05y2KaHlvG3iXDrGY10MY4Gb+YbsL2JXh5VS/7izB6EzjJYxu6OJ1mtOEY11WsRruBSblpJT/BulS2rszBil0Jm4aGLLK4aWiqylaW0IU324C8ylUDJi394o6SR8a6xsL+y7RFBgIBY/ifbXsJRQPzFIyOgV1VDcfkFCxZaCyqoRC06j0ih4M6WdrgfzW8ZOhv+9C0KNqQrJBgyl5Ju1hj7zqSxAdmeOG7qw5gn52UV5p9ke8wlwTfWFjK/Gx6S2+/5PLalTDTI5/JegSGUMSKXRjfv+8EpE4L+jMSExlQtzw73fbe+O78sW7WBHLOfFigaW6qwRX6sB2veWMh7WfRpRMDKB184uI33kCzn7uCzkhmU3SqnBr3Gm/jxSHHWtcPk9jqHnJhyShlvzLG4JzT0yG+vwuo2UYveeHE2zrj3QztQHEvdxCy3NN/TjHvHcDLWonVpG+YaVXLaqgjCdnAPsg0hFEh88VoiJY/2d7tSKullHexVjDLX3YRWUnrTT4HjuhdJyJ7WVnlVOkKRu4rlODCkmboacuSFeAl7KRLGV/G+ZXEVly8SvrCVg8hvETJrg9qVq+wdjny03UMhfJ4FR4mcWQz13wamY0sIm6JgAL4S3hBmie1yjn4SKYmtbT99Np1VV6a80CVkKj9KzTFSHxyDGT8Y4tBYt7qLfFY657V40qnNWXLkIHrp78mGiMnA6KFDk6fn/3GdTksJXoi7Kxt/s/XW8ktxuXZSMilekG9qjjqq1U80fqUTo6nJQPxINdJSOO8LYbbJ5rkUDH/pbZFB70jUywMWq+MdeOE51Un3M24xOiql7BzWuW/OfnEBFDsSdbKzyUbJ3L9MbPx/3RM2JbUtOPQ3/HMKsXEXoE/c+aps+UZR7+i+GRw9qmVW7c1tv0T0oLugMx0j7opxlgLt8pbyD5QBORfFABLxiDrG4pkq6cPG35leg/o5Lz+0PMBhA2kRv98WJYOvOtIwc9pBOXp6ARm/OSzZByopRmzsqXkwJPmSveCqYGkadwNO43zAFIwEZqeDnlqellCXL/NtKyu00dCQGXOxcAAOMdZwQ++xozJT02fhq+feHX9hbhzYOMXJCzoYHAmn7jeVb8fuD2mpoF6AL5cOOzQahHQOhNbHAZuPOjCFd0OC+e4maWrHfbM2udOPpQh1hxFsZe7q7PKluGoTMp7BTW5cyOk+XTDAeTU33hZwMoifsz7fc/xid5kUt4i2PCVMJQz85dikuUHsTTZYadBrH7NXpIyBsPRYurEB4kmtwhkRuEQIVROPwnQZltyNNQh6Vk6+RM6E89u9EzVBbX0cjVUFW37JYMIgt1/Vy+PiPSjbc+jDybZ4phauKV2ZPuJR0+1smAOMHGPbL37oCjhEjvrs5j5KHY8Up/o5fll8S2+a9JZEGEfVe+MoC+daDeV7EpE/bKHeFozmYIe1YFGgBW0yUrWD+qx7Kmv1IktECfYl09J3M9S5O3Ab3uIqsRSnWA7bbCtFPz43Bi3a6aLlJtz1YgV4Hx0wljVcniKKDTMoJ0/7h3CmF4w64PJCQwe9v7SHpo5VTg2NOoyN8YpuUF8cImjqngWSAecb2L0ejYmVYHJlgms8u1Tnp0oRk+SO4ZFr5H4Akw=="
+    }
+  ],
+  "items": [
+    {
+      "id": 1,
+      "title": "GitHub",
+      "category": "开发",
+      "note": "主账号，已开启两步验证\n备用码放在保险柜",
+      "created_at": "2026-09-05T17:36:30+08:00",
+      "updated_at": "2026-09-05T17:36:30+08:00",
+      "value": "gh_user_2026@example.com: Hunter2-Overflow! 🦀",
+      "version_count": 1,
+      "versions": [
+        {
+          "version": 1,
+          "created_at": "2026-09-05T17:36:30+08:00",
+          "snapshot": "gh_user_2026@example.com: Hunter2-Overflow! 🦀"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "公司邮箱",
+      "category": "工作",
+      "note": "季度轮换（已交由主管备份）",
+      "created_at": "2026-09-05T17:36:30+08:00",
+      "updated_at": "2026-09-05T17:36:30+08:00",
+      "value": "zhang.san@corp.example.cn: Mail-Pass-2026-Q3-@888",
+      "version_count": 3,
+      "versions": [
+        {
+          "version": 3,
+          "created_at": "2026-09-05T17:36:30+08:00",
+          "snapshot": "zhang.san@corp.example.cn: Mail-Pass-2026-Q3-@888"
+        },
+        {
+          "version": 2,
+          "created_at": "2026-09-05T17:36:30+08:00",
+          "snapshot": "zhang.san@corp.example.cn: Mail-Pass-2026-Q2-#777"
+        },
+        {
+          "version": 1,
+          "created_at": "2026-09-05T17:36:30+08:00",
+          "snapshot": "zhang.san@corp.example.cn: Mail-Pass-2026-#315"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "家里 Wi-Fi \u0026 \u003c路由器\u003e",
+      "category": "生活",
+      "note": "备注含引号 \"双引号\" 与单引号 'single' 及 %s %d 占位符",
+      "created_at": "2026-09-05T17:36:30+08:00",
+      "updated_at": "2026-09-05T17:36:30+08:00",
+      "value": "",
+      "version_count": 1,
+      "versions": [
+        {
+          "version": 1,
+          "created_at": "2026-09-05T17:36:30+08:00",
+          "snapshot": ""
+        }
+      ]
+    }
+  ]
+}

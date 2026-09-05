@@ -1,0 +1,170 @@
+/* ============================================================
+   SecretBox 桌面版样式 — 与 Go 版 web/style.css 同一套设计系统
+   工单 #01 只覆盖解锁页；主界面样式在后续工单按基准补齐
+   ============================================================ */
+
+/* ---------- 设计系统变量（与 web/style.css 一致） ---------- */
+:root {
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+}
+
+/* 主题变量 */
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #15171a;
+  --bg2: #1c1e22;
+  --panel: #202329;
+  --border: #2e3138;
+  --text: #e8eaed;
+  --text-soft: #aeb3bb;
+  --dim: #868b93;
+  --faint: #5d626a;
+  --accent: #4f7cff;
+  --accent-hi: #6f97ff;
+  --accent-ink: #fff;
+  --accent-soft: rgba(79, 124, 255, .13);
+  --accent-line: rgba(79, 124, 255, .4);
+  --danger: #e05a5a;
+  --shadow: 0 12px 30px rgba(0, 0, 0, .4);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f5f6f8;
+  --bg2: #eceef1;
+  --panel: #ffffff;
+  --border: #dfe2e8;
+  --text: #1f2329;
+  --text-soft: #4b515a;
+  --dim: #7a828c;
+  --faint: #a4aab3;
+  --accent: #3b67e0;
+  --accent-hi: #2b53c4;
+  --accent-ink: #fff;
+  --accent-soft: rgba(59, 103, 224, .1);
+  --accent-line: rgba(59, 103, 224, .38);
+  --danger: #d14b4b;
+  --shadow: 0 12px 30px rgba(20, 30, 50, .12);
+}
+
+@media (prefers-color-scheme: light) {
+  [data-theme="system"],
+  :root:not([data-theme]) {
+    color-scheme: light;
+    --bg: #f5f6f8;
+    --bg2: #eceef1;
+    --panel: #ffffff;
+    --border: #dfe2e8;
+    --text: #1f2329;
+    --text-soft: #4b515a;
+    --dim: #7a828c;
+    --faint: #a4aab3;
+    --accent: #3b67e0;
+    --accent-hi: #2b53c4;
+    --accent-ink: #fff;
+    --accent-soft: rgba(59, 103, 224, .1);
+    --accent-line: rgba(59, 103, 224, .38);
+    --danger: #d14b4b;
+    --shadow: 0 12px 30px rgba(20, 30, 50, .12);
+  }
+}
+
+/* ---------- 基础 ---------- */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+
+body {
+  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  transition: background .3s ease, color .3s ease;
+}
+
+button { font-family: inherit; }
+
+/* ---------- 认证页（与 web/style.css 的 .auth-* 一致） ---------- */
+.auth-view,
+.unlocked-view {
+  height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  animation: fade .4s ease both;
+  padding: 20px;
+}
+
+.auth-card,
+.unlocked-card {
+  width: min(360px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 40px 36px 34px;
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+
+.auth-mark {
+  width: 60px; height: 60px; margin: 0 auto 20px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  display: grid; place-items: center;
+  font-size: 24px;
+}
+
+.auth-card h1,
+.unlocked-card h1 {
+  font-size: 24px; font-weight: 650; letter-spacing: .5px;
+}
+.auth-card .subtitle,
+.unlocked-card .subtitle {
+  color: var(--dim); font-size: 14px; margin: 6px 0 24px;
+}
+
+.auth-card input {
+  width: 100%; padding: 12px 14px; margin-bottom: 12px;
+  border-radius: 10px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); font-size: 15px;
+  transition: border-color .2s, box-shadow .2s;
+}
+.auth-card input::placeholder { color: var(--faint); }
+.auth-card input:focus {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.auth-card input::-ms-reveal { display: none; }
+
+.auth-error {
+  color: var(--danger); min-height: 20px; margin-top: 12px; font-size: 13px;
+}
+
+.auth-hint {
+  color: var(--dim); font-size: 13px; margin: 4px 0;
+}
+
+/* ---------- 按钮 ---------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  border: none; border-radius: 10px; cursor: pointer;
+  padding: 11px 18px; font-size: 14px; font-weight: 600;
+  transition: background .2s, color .2s, border-color .2s, box-shadow .2s, transform .08s;
+  user-select: none;
+}
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+
+.btn-primary {
+  color: var(--accent-ink); background: var(--accent);
+}
+.btn-primary:hover { background: var(--accent-hi); }
+
+.auth-card .btn-primary { width: 100%; margin-top: 6px; }
+
+@keyframes fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
