@@ -8,3 +8,6 @@ secretbox.exe
 
 # 测试临时文件
 *.log
+# 本地辅助文件
+.workbuddy/
+*.exe~
