@@ -164,6 +164,52 @@ impl Db {
         self.salt.is_some()
     }
 
+    /// 首次设置主密码：生成随机盐、写 meta 表并更新内存盐值，返回派生密钥。
+    pub fn setup_master_password(&mut self, password: &str) -> Result<Vec<u8>, SecretboxError> {
+        let (key, salt) = crypto::derive_key(password, &[])?;
+        self.conn.execute(
+            "INSERT INTO meta(key,value) VALUES('salt',?1)
+             ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            [&BASE64.encode(&salt)],
+        )?;
+        self.salt = Some(salt);
+        Ok(key)
+    }
+
+    /// 读取设置项，不存在返回默认值（与 Go 版 GetSetting 一致）。
+    pub fn get_setting(&self, key: &str, default: &str) -> Result<String, SecretboxError> {
+        match self
+            .conn
+            .query_row("SELECT value FROM settings WHERE key = ?1", [key], |row| {
+                row.get::<_, String>(0)
+            }) {
+            Ok(value) => Ok(value),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(default.to_string()),
+            Err(err) => Err(err.into()),
+        }
+    }
+
+    /// 写入设置项。
+    pub fn set_setting(&self, key: &str, value: &str) -> Result<(), SecretboxError> {
+        self.conn.execute(
+            "INSERT INTO settings(key,value) VALUES(?1,?2)
+             ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            [key, value],
+        )?;
+        Ok(())
+    }
+
+    /// 读取全部设置（键值对）。
+    pub fn get_all_settings(&self) -> Result<Vec<(String, String)>, SecretboxError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT key, value FROM settings")?;
+        let rows = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     /// 用主密码解锁：派生密钥并用首条密文验证（无数据时跳过校验，仍视为成功）。
     /// 成功返回派生密钥（只应存于内存）。
     pub fn unlock(&self, password: &str) -> Result<Vec<u8>, SecretboxError> {

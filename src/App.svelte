@@ -1,76 +1,135 @@
-  <script lang="ts">
-  import { ipc } from "./ipc";
+<script lang="ts">
+  import { ipc, type Settings } from "./ipc";
+  import AuthView from "./AuthView.svelte";
+  import MainView from "./MainView.svelte";
+  import Toast from "./Toast.svelte";
 
+  let ready = $state(false);
   let hasPassword = $state(true);
-  let password = $state("");
-  let error = $state("");
-  let busy = $state(false);
   let unlocked = $state(false);
-  let itemCount = $state(0);
+  let settings = $state<Settings>({});
+  let toastMessage = $state("");
+  let toastType = $state("");
+  let toastTimer: ReturnType<typeof setTimeout> | undefined;
+  let autoLockTimer: ReturnType<typeof setTimeout> | undefined;
 
-  function focusOnMount(node: HTMLElement) {
-    node.focus();
+  // ---------- 主题切换（与 Go 版一致） ----------
+  const THEME_KEY = "secretbox-theme";
+
+  function applyTheme(theme: string) {
+    document.documentElement.setAttribute("data-theme", theme);
+    try {
+      localStorage.setItem(THEME_KEY, theme);
+    } catch {
+      /* 忽略存储失败 */
+    }
+    themeMode = theme;
   }
 
+  function savedTheme(): string {
+    try {
+      const saved = localStorage.getItem(THEME_KEY);
+      if (saved === "light" || saved === "dark" || saved === "system") return saved;
+    } catch {
+      /* 忽略 */
+    }
+    return "system";
+  }
+
+  let themeMode = $state("system");
+
+  // 系统主题变化时，若处于 system 模式则自动跟随
+  // （CSS 的 prefers-color-scheme 已覆盖样式，这里只同步按钮选中态）
   $effect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: light)");
+    const onChange = () => {
+      if (themeMode === "system") applyTheme("system");
+    };
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  });
+
+  // ---------- Toast ----------
+  function showToast(message: string, type = "") {
+    toastMessage = message;
+    toastType = type;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (toastMessage = ""), 2300);
+  }
+
+  // ---------- 自动锁定 ----------
+  function resetAutoLockTimer() {
+    clearTimeout(autoLockTimer);
+    const secs = parseInt(settings.auto_lock_seconds ?? "120", 10);
+    if (secs > 0 && unlocked) {
+      autoLockTimer = setTimeout(() => {
+        showToast("长时间无操作,已自动锁定");
+        lock();
+      }, secs * 1000);
+    }
+  }
+
+  // ---------- 锁定 ----------
+  async function lock() {
+    clearTimeout(autoLockTimer);
+    try {
+      await ipc.lock();
+    } catch {
+      /* 忽略 */
+    }
+    unlocked = false;
+  }
+
+  // 用户交互重置自动锁定计时（与 Go 版一致）
+  $effect(() => {
+    const events = ["click", "keydown", "scroll", "mousemove"] as const;
+    const onActivity = () => {
+      if (unlocked) resetAutoLockTimer();
+    };
+    events.forEach((evt) => document.addEventListener(evt, onActivity, { passive: true }));
+    return () => events.forEach((evt) => document.removeEventListener(evt, onActivity));
+  });
+
+  // ---------- 启动 ----------
+  $effect(() => {
+    applyTheme(savedTheme());
     ipc
       .getStatus()
       .then((status) => {
         hasPassword = status.has_password;
       })
       .catch((e) => {
-        error = String(e);
+        hasPassword = false;
+        showToast("无法连接服务: " + e, "err");
+      })
+      .finally(() => {
+        ready = true;
       });
   });
 
-  async function submit(event: SubmitEvent) {
-    event.preventDefault();
-    if (busy) return;
-    busy = true;
-    error = "";
+  async function handleUnlocked() {
+    unlocked = true;
     try {
-      await ipc.unlock(password);
-      const items = await ipc.listItems();
-      itemCount = items.length;
-      unlocked = true;
-    } catch (e) {
-      error = typeof e === "string" ? e : String(e);
-    } finally {
-      busy = false;
-      password = "";
+      settings = await ipc.getSettings();
+    } catch {
+      settings = {};
     }
+    showToast("已解锁");
+    resetAutoLockTimer();
+  }
+
+  async function handleSetupCompleted() {
+    // 首次设置主密码后直接进入主界面
+    await handleUnlocked();
   }
 </script>
 
-{#if !unlocked}
-  <div class="auth-view">
-    <form class="auth-card" onsubmit={submit}>
-      <div class="auth-mark">🔒</div>
-      <h1>SecretBox</h1>
-      <div class="subtitle">隐 私 保 险 箱</div>
-      {#if hasPassword}
-        <input
-          type="password"
-          placeholder="输入主密码"
-          autocomplete="off"
-          use:focusOnMount
-          bind:value={password}
-        />
-        <button class="btn btn-primary" type="submit" disabled={busy}>
-          {busy ? "解锁中…" : "解锁"}
-        </button>
-      {:else}
-        <div class="auth-hint">尚未设置主密码，该功能将在后续版本提供</div>
-      {/if}
-      <div class="auth-error">{error}</div>
-    </form>
-  </div>
-{:else}
-  <div class="unlocked-view">
-    <div class="unlocked-card">
-      <div class="auth-mark">🔓</div>
-      <h1>已解锁</h1>
-      <div class="subtitle" data-testid="item-count">共 {itemCount} 条条目</div>
-    </div>
-  </div>
+{#if ready}
+  {#if !unlocked}
+    <AuthView {hasPassword} onUnlocked={handleUnlocked} onSetupCompleted={handleSetupCompleted} />
+  {:else}
+    <MainView {themeMode} {applyTheme} onLock={lock} onToast={showToast} />
+  {/if}
 {/if}
+
+<Toast message={toastMessage} type={toastType} />
