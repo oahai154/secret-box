@@ -9,9 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"time"
@@ -58,7 +56,9 @@ func main() {
 	if !*noOpen {
 		go func() {
 			time.Sleep(300 * time.Millisecond)
-			openBrowser(webURL)
+			if err := openBrowser(webURL); err != nil {
+				log.Printf("自动打开浏览器失败,请手动访问 %s: %v", webURL, err)
+			}
 		}()
 	}
 
@@ -127,20 +127,4 @@ func listen(port *int) (net.Listener, error) {
 	return nil, fmt.Errorf("端口 %d-%d 均不可用", start, start+199)
 }
 
-// openBrowser 跨平台打开默认浏览器。
-func openBrowser(urlStr string) {
-	u, _ := url.Parse(urlStr)
-	_ = u
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", urlStr)
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", urlStr)
-	default:
-		cmd = exec.Command("xdg-open", urlStr)
-	}
-	if err := cmd.Start(); err != nil {
-		log.Printf("打开浏览器失败: %v", err)
-	}
-}
+// openBrowser 跨平台打开默认浏览器,实现见 browser_windows.go / browser_other.go。
