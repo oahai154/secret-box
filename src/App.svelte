@@ -122,13 +122,19 @@
     // 首次设置主密码后直接进入主界面
     await handleUnlocked();
   }
+
+  // 导入快照/清除痕迹后重置会话回到解锁页（数据的主密码状态可能已改变）
+  function handleSessionReset(hasPasswordNow: boolean) {
+    hasPassword = hasPasswordNow;
+    unlocked = false;
+  }
 </script>
 
 {#if ready}
   {#if !unlocked}
     <AuthView {hasPassword} onUnlocked={handleUnlocked} onSetupCompleted={handleSetupCompleted} />
   {:else}
-    <MainView {settings} {themeMode} {applyTheme} onLock={lock} onToast={showToast} />
+    <MainView {settings} {themeMode} {applyTheme} onLock={lock} onToast={showToast} onSessionReset={handleSessionReset} />
   {/if}
 {/if}
 

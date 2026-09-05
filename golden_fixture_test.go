@@ -431,3 +431,206 @@ func TestGoldenVerifyRustVectors(t *testing.T) {
 	}
 	fmt.Printf("Rust 加密向量读回验证通过: %d 条\n", len(payload.Vectors))
 }
+
+// buildMigrationFile 用与 handlers.go handleExport 相同的格式构建迁移文件内容
+// （base64( JSON{version:1, salt, cipher} )），供快照跨语言互通测试使用。
+func buildMigrationFile(t *testing.T, app *App, passphrase string) string {
+	t.Helper()
+	snap, err := app.GetSnapshot()
+	if err != nil {
+		t.Fatalf("GetSnapshot: %v", err)
+	}
+	snapJSON, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatalf("Marshal snapshot: %v", err)
+	}
+	key, salt, err := DeriveKey(passphrase, nil)
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
+	cipherText, err := Encrypt(key, string(snapJSON))
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	file := map[string]any{
+		"version": 1,
+		"salt":    base64.StdEncoding.EncodeToString(salt),
+		"cipher":  cipherText,
+	}
+	fileJSON, _ := json.Marshal(file)
+	return base64.StdEncoding.EncodeToString(fileJSON)
+}
+
+// TestSnapshotExportTool 把指定数据库导出为迁移文件（Go 格式），供 Rust 导入验证。
+// 需设置 SECRETBOX_SNAPSHOT_EXPORT_DB / SECRETBOX_SNAPSHOT_EXPORT_PASSWORD /
+// SECRETBOX_SNAPSHOT_EXPORT_OUT。
+func TestSnapshotExportTool(t *testing.T) {
+	dbPath := os.Getenv("SECRETBOX_SNAPSHOT_EXPORT_DB")
+	password := os.Getenv("SECRETBOX_SNAPSHOT_EXPORT_PASSWORD")
+	outPath := os.Getenv("SECRETBOX_SNAPSHOT_EXPORT_OUT")
+	if dbPath == "" || outPath == "" {
+		t.Skip("未设置 SECRETBOX_SNAPSHOT_EXPORT_DB/SECRETBOX_SNAPSHOT_EXPORT_OUT，跳过快照导出")
+	}
+
+	app, err := NewApp(dbPath)
+	if err != nil {
+		t.Fatalf("NewApp: %v", err)
+	}
+	defer app.Close()
+
+	content := buildMigrationFile(t, app, password)
+	if err := os.WriteFile(outPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	fmt.Printf("Go 快照导出完成: %s\n", outPath)
+}
+
+// TestSnapshotImportTool 用 Go 版格式解析迁移文件（Rust 导出）并还原到新数据库，
+// 再导出全部明文供比对。需设置 SECRETBOX_SNAPSHOT_IMPORT_FILE /
+// SECRETBOX_SNAPSHOT_IMPORT_PASSWORD / SECRETBOX_SNAPSHOT_IMPORT_DB，
+// 可选 SECRETBOX_SNAPSHOT_IMPORT_OUT / SECRETBOX_SNAPSHOT_IMPORT_EXPECT 逐字段比对。
+func TestSnapshotImportTool(t *testing.T) {
+	filePath := os.Getenv("SECRETBOX_SNAPSHOT_IMPORT_FILE")
+	password := os.Getenv("SECRETBOX_SNAPSHOT_IMPORT_PASSWORD")
+	dbPath := os.Getenv("SECRETBOX_SNAPSHOT_IMPORT_DB")
+	if filePath == "" || dbPath == "" {
+		t.Skip("未设置 SECRETBOX_SNAPSHOT_IMPORT_FILE/SECRETBOX_SNAPSHOT_IMPORT_DB，跳过快照导入")
+	}
+
+	raw, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("读取迁移文件: %v", err)
+	}
+	var file struct {
+		Version int    `json:"version"`
+		Salt    string `json:"salt"`
+		Cipher  string `json:"cipher"`
+	}
+	content, err := base64.StdEncoding.DecodeString(string(raw))
+	if err != nil {
+		t.Fatalf("迁移文件无法解析(损坏?): %v", err)
+	}
+	if err := json.Unmarshal(content, &file); err != nil || file.Version != 1 || file.Salt == "" {
+		t.Fatalf("迁移文件格式无效")
+	}
+	salt, err := base64.StdEncoding.DecodeString(file.Salt)
+	if err != nil {
+		t.Fatalf("迁移文件格式无效: %v", err)
+	}
+	key, _, err := DeriveKey(password, salt)
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
+	plain, err := Decrypt(key, file.Cipher)
+	if err != nil {
+		t.Fatalf("迁移口令错误或文件已损坏: %v", err)
+	}
+	var snap Snapshot
+	if err := json.Unmarshal([]byte(plain), &snap); err != nil {
+		t.Fatalf("迁移文件内容无效: %v", err)
+	}
+
+	_ = os.Remove(dbPath)
+	_ = os.Remove(dbPath + "-wal")
+	_ = os.Remove(dbPath + "-shm")
+	app, err := NewApp(dbPath)
+	if err != nil {
+		t.Fatalf("NewApp: %v", err)
+	}
+	defer app.Close()
+	if err := app.RestoreFromSnapshot(&snap); err != nil {
+		t.Fatalf("RestoreFromSnapshot: %v", err)
+	}
+	fmt.Printf("Go 快照导入完成: %d 个条目\n", len(snap.Items))
+
+	// 导出全部明文并可选比对（与 TestGoldenVerifyDump 相同的比对逻辑）
+	outPath := os.Getenv("SECRETBOX_SNAPSHOT_IMPORT_OUT")
+	if outPath == "" {
+		return
+	}
+	dumpSalt, err := base64.StdEncoding.DecodeString(snap.SaltB64)
+	if err != nil {
+		t.Fatalf("decode snapshot salt: %v", err)
+	}
+	dumpKey, _, err := DeriveKey(os.Getenv("SECRETBOX_SNAPSHOT_DB_PASSWORD"), dumpSalt)
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
+	items, err := app.ListItems()
+	if err != nil {
+		t.Fatalf("ListItems: %v", err)
+	}
+	dump := struct {
+		Salt  string       `json:"salt"`
+		Items []GoldenItem `json:"items"`
+	}{Salt: snap.SaltB64, Items: []GoldenItem{}}
+	for _, it := range items {
+		full, err := app.GetItem(dumpKey, it.ID)
+		if err != nil {
+			t.Fatalf("GetItem %d: %v", it.ID, err)
+		}
+		gi := GoldenItem{
+			ID: full.ID, Title: full.Title, Category: full.Category, Note: full.Note,
+			CreatedAt: full.CreatedAt, UpdatedAt: full.UpdatedAt, Value: full.Value,
+			VersionCount: it.VersionCount, Versions: []GoldenVersion{},
+		}
+		versions, err := app.ListVersions(it.ID)
+		if err != nil {
+			t.Fatalf("ListVersions %d: %v", it.ID, err)
+		}
+		for _, v := range versions {
+			snapPlain, err := app.GetVersionSnapshot(dumpKey, it.ID, int64(v.Version))
+			if err != nil {
+				t.Fatalf("GetVersionSnapshot: %v", err)
+			}
+			gi.Versions = append(gi.Versions, GoldenVersion{Version: v.Version, CreatedAt: v.CreatedAt, Snapshot: snapPlain})
+		}
+		dump.Items = append(dump.Items, gi)
+	}
+	data, err := json.MarshalIndent(&dump, "", "  ")
+	if err != nil {
+		t.Fatalf("MarshalIndent: %v", err)
+	}
+	if err := os.WriteFile(outPath, data, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	fmt.Printf("导入后明文已写出: %s\n", outPath)
+
+	if expectPath := os.Getenv("SECRETBOX_SNAPSHOT_IMPORT_EXPECT"); expectPath != "" {
+		expectData, err := os.ReadFile(expectPath)
+		if err != nil {
+			t.Fatalf("读取期望文件: %v", err)
+		}
+		var expected struct {
+			Salt  string       `json:"salt"`
+			Items []GoldenItem `json:"items"`
+		}
+		if err := json.Unmarshal(expectData, &expected); err != nil {
+			t.Fatalf("期望文件格式无效: %v", err)
+		}
+		if dump.Salt != expected.Salt {
+			t.Fatalf("盐值不一致: got %q want %q", dump.Salt, expected.Salt)
+		}
+		canonical := func(items []GoldenItem) []GoldenItem {
+			cp := append([]GoldenItem(nil), items...)
+			sort.Slice(cp, func(i, j int) bool { return cp[i].ID < cp[j].ID })
+			for k := range cp {
+				vs := append([]GoldenVersion(nil), cp[k].Versions...)
+				sort.Slice(vs, func(i, j int) bool { return vs[i].Version < vs[j].Version })
+				cp[k].Versions = vs
+			}
+			return cp
+		}
+		got := canonical(dump.Items)
+		want := canonical(expected.Items)
+		if len(got) != len(want) {
+			t.Fatalf("条目数量不一致: got %d want %d", len(got), len(want))
+		}
+		for i := range got {
+			if !reflect.DeepEqual(got[i], want[i]) {
+				t.Fatalf("条目 %d 数据不一致:\n got: %+v\nwant: %+v", got[i].ID, got[i], want[i])
+			}
+		}
+		fmt.Printf("期望比对通过: %d 个条目逐字段一致\n", len(got))
+	}
+}

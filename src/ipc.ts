@@ -30,6 +30,19 @@ export interface Status {
 
 export type Settings = Record<string, string>;
 
+// 导出快照的结果：文件名 + 文件内容（base64 文本，即 .secretbox 文件内容）
+export interface ExportResult {
+  filename: string;
+  content: string;
+}
+
+// 导入快照的结果（与 Go 版响应一致）
+export interface ImportResult {
+  imported: boolean;
+  has_password: boolean;
+  items: number;
+}
+
 export interface SecretboxIpc {
   getStatus(): Promise<Status>;
   unlock(password: string): Promise<void>;
@@ -48,6 +61,11 @@ export interface SecretboxIpc {
   deleteVersion(id: number, version: number): Promise<void>;
   getSettings(): Promise<Settings>;
   updateSettings(updates: Settings): Promise<void>;
+  exportSnapshot(password: string): Promise<ExportResult>;
+  importSnapshot(password: string, content: string): Promise<ImportResult>;
+  wipe(): Promise<void>;
+  /** 弹原生"另存为"对话框保存导出内容，返回保存路径；取消返回空串。 */
+  saveSnapshotFile(filename: string, content: string): Promise<string>;
 }
 
 export interface ItemInput {
@@ -102,6 +120,12 @@ function createTauriIpc(): SecretboxIpc {
       invoke<void>("delete_version", { id, version }),
     getSettings: () => invoke<Settings>("get_settings"),
     updateSettings: (updates: Settings) => invoke<void>("update_settings", { settings: updates }),
+    exportSnapshot: (password: string) => invoke<ExportResult>("export_snapshot", { password }),
+    importSnapshot: (password: string, content: string) =>
+      invoke<ImportResult>("import_snapshot", { password, content }),
+    wipe: () => invoke<void>("wipe"),
+    saveSnapshotFile: (filename: string, content: string) =>
+      invoke<string>("save_snapshot_file", { filename, content }),
   };
 }
 

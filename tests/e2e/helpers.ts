@@ -149,6 +149,44 @@ export function injectMockIpc(page: Page): void {
         updateSettings: async (updates) => {
           Object.assign(settings, updates);
         },
+        exportSnapshot: async (password) => {
+          if (!password || password.trim().length < 4) throw "迁移口令至少 4 个字符";
+          const snap = {
+            has_password: true,
+            salt: fix.salt,
+            items: [...store.values()].map((it) => ({
+              title: it.title,
+              category: it.category,
+              note: it.note,
+              value: "cipher:" + it.value,
+              created: it.created_at,
+              updated: it.updated_at,
+              versions: (it.versions || []).map((v) => ({
+                version: v.version,
+                snapshot: "cipher:" + v.snapshot,
+                created: v.created_at,
+              })),
+            })),
+          };
+          const file = { version: 1, salt: "bW9ja0V4cG9ydFNhbHQ=", cipher: btoa(unescape(encodeURIComponent(JSON.stringify(snap)))) };
+          return {
+            filename: "secretbox-backup-20260905-120000.secretbox",
+            content: btoa(unescape(encodeURIComponent(JSON.stringify(file)))),
+          };
+        },
+        saveSnapshotFile: async (filename) => "C:\\\\mock\\\\exports\\\\" + filename,
+        importSnapshot: async (password, content) => {
+          if (!content) throw "迁移文件无法解析(损坏?)";
+          if (password !== "mock-import-pass") throw "迁移口令错误或文件已损坏";
+          // 导入成功：用黄金样本数据覆盖本地，需用原主密码重新解锁
+          store.clear();
+          for (const it of fix.items) store.set(it.id, JSON.parse(JSON.stringify(it)));
+          return { imported: true, has_password: true, items: fix.items.length };
+        },
+        wipe: async () => {
+          store.clear();
+          fix.password = "";
+        },
       };
     })();
   `;

@@ -12,6 +12,7 @@ use rusqlite::{Connection, Transaction};
 use serde::{Deserialize, Serialize};
 
 use crate::crypto::{self, CryptoError};
+use crate::migration::{Snapshot, SnapshotItem, SnapshotVersion};
 
 /// 当前时间，RFC3339 秒精度，与 Go 版 nowISO() 格式一致。
 fn now_iso() -> String {
@@ -30,6 +31,16 @@ pub enum SecretboxError {
     ItemNotFound,
     #[error("版本不存在")]
     VersionNotFound,
+    #[error("迁移文件格式无效")]
+    MigrationFormatInvalid,
+    #[error("迁移口令错误或文件已损坏")]
+    MigrationPassphraseWrong,
+    #[error("迁移文件内容无效")]
+    MigrationContentInvalid,
+    #[error("序列化快照失败")]
+    SnapshotSerializeFailed,
+    #[error("删除数据库文件失败: {0}")]
+    RemoveDbFailed(String),
 }
 
 /// 条目（读列表时不含明文；用 [`Db::get_item`] 单独读取时填充 `value`）。
@@ -488,7 +499,7 @@ impl Db {
         new_password: &str,
     ) -> Result<Vec<u8>, SecretboxError> {
         // 先读出全部密文（条目 + 历史版本），避免事务内遍历与更新互相干扰
-        let mut item_rows: Vec<(i64, String)> = {
+        let item_rows: Vec<(i64, String)> = {
             let mut stmt = self
                 .conn
                 .prepare("SELECT id, encrypted_value FROM secret_items")?;
@@ -550,5 +561,134 @@ impl Db {
         let content = self.get_version_snapshot(key, secret_id, version)?;
         let item = self.get_item(key, secret_id)?;
         self.update_item(key, secret_id, &item.title, &item.category, &item.note, &content)
+    }
+
+    // ---------- 快照导出 / 导入 / 清除痕迹（与 Go 版 GetSnapshot/RestoreFromSnapshot/Wipe 对齐） ----------
+
+    /// 读取当前数据库的完整数据快照（条目密文 + 盐值，不解密）。
+    pub fn get_snapshot(&self) -> Result<Snapshot, SecretboxError> {
+        let mut snap = Snapshot {
+            has_password: self.has_master_password(),
+            // 直接从库读取盐值，确保导出包含主密码盐
+            salt_b64: self
+                .conn
+                .query_row("SELECT value FROM meta WHERE key='salt'", [], |row| {
+                    row.get::<_, String>(0)
+                })
+                .unwrap_or_default(),
+            items: Vec::new(),
+        };
+        let mut stmt = self.conn.prepare(
+            "SELECT id, title, category, note, encrypted_value, created_at, updated_at
+             FROM secret_items ORDER BY id",
+        )?;
+        let mut rows = stmt.query([])?;
+        while let Some(row) = rows.next()? {
+            let id: i64 = row.get(0)?;
+            let mut item = SnapshotItem {
+                title: row.get(1)?,
+                category: row.get(2)?,
+                note: row.get(3)?,
+                value: row.get(4)?,
+                created: row.get(5)?,
+                updated: row.get(6)?,
+                versions: Vec::new(),
+            };
+            let mut vstmt = self.conn.prepare(
+                "SELECT version, encrypted_snapshot, created_at
+                 FROM secret_versions WHERE secret_id = ?1 ORDER BY version",
+            )?;
+            let mut vrows = vstmt.query([id])?;
+            while let Some(vrow) = vrows.next()? {
+                item.versions.push(SnapshotVersion {
+                    version: vrow.get(0)?,
+                    snapshot: vrow.get(1)?,
+                    created: vrow.get(2)?,
+                });
+            }
+            snap.items.push(item);
+        }
+        Ok(snap)
+    }
+
+    /// 用给定快照重建整个库（先清空再写入），并重读盐值。
+    pub fn restore_from_snapshot(&mut self, snap: &Snapshot) -> Result<(), SecretboxError> {
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM secret_versions", [])?;
+        tx.execute("DELETE FROM secret_items", [])?;
+        tx.execute("DELETE FROM meta", [])?;
+        if !snap.salt_b64.is_empty() {
+            tx.execute(
+                "INSERT INTO meta(key,value) VALUES('salt',?1)",
+                [&snap.salt_b64],
+            )?;
+        }
+        for it in &snap.items {
+            if it.value.is_empty() {
+                continue;
+            }
+            tx.execute(
+                "INSERT INTO secret_items(title,category,note,encrypted_value,created_at,updated_at)
+                 VALUES(?1,?2,?3,?4,?5,?6)",
+                rusqlite::params![it.title, it.category, it.note, it.value, it.created, it.updated],
+            )?;
+            let id = tx.last_insert_rowid();
+            for v in &it.versions {
+                if v.snapshot.is_empty() {
+                    continue;
+                }
+                tx.execute(
+                    "INSERT INTO secret_versions(secret_id,version,encrypted_snapshot,created_at)
+                     VALUES(?1,?2,?3,?4)",
+                    rusqlite::params![id, v.version, v.snapshot, v.created],
+                )?;
+            }
+        }
+        tx.commit()?;
+        self.reload_salt()
+    }
+
+    /// 清除全部数据（条目、版本与盐值/主密码设置），然后关闭连接并删除数据库文件
+    /// （含 -wal/-shm），实现"导出后清除本地痕迹"。本方法消耗自身。
+    pub fn wipe_and_remove_files(self) -> Result<(), SecretboxError> {
+        let path = self.db_path.clone();
+        {
+            let tx = self.conn.unchecked_transaction()?;
+            tx.execute("DELETE FROM secret_versions", [])?;
+            tx.execute("DELETE FROM secret_items", [])?;
+            tx.execute("DELETE FROM meta", [])?;
+            tx.commit()?;
+        }
+        drop(self.conn);
+
+        // Windows 杀毒可能瞬时锁文件，重试删除
+        let mut last_err = None;
+        for _ in 0..5 {
+            let gone = ["" , "-wal", "-shm"].iter().all(|suffix| {
+                !std::path::Path::new(&format!("{path}{suffix}")).exists()
+            });
+            if gone {
+                return Ok(());
+            }
+            last_err = std::fs::remove_file(&path)
+                .and_then(|_| maybe_remove(&format!("{path}-wal")))
+                .and_then(|_| maybe_remove(&format!("{path}-shm")))
+                .err();
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        Err(SecretboxError::RemoveDbFailed(
+            last_err
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| "文件仍存在".to_string()),
+        ))
+    }
+}
+
+fn maybe_remove(path: &str) -> std::io::Result<()> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        // 文件本就不存在视为成功
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err),
     }
 }

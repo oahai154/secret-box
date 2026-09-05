@@ -4,6 +4,8 @@
   import VerifyModal from "./VerifyModal.svelte";
   import SettingsModal from "./SettingsModal.svelte";
   import ChangePasswordModal from "./ChangePasswordModal.svelte";
+  import DbModal from "./DbModal.svelte";
+  import PromptModal from "./PromptModal.svelte";
 
   let {
     settings,
@@ -11,12 +13,15 @@
     applyTheme,
     onLock,
     onToast,
+    onSessionReset,
   }: {
     settings: Settings;
     themeMode: string;
     applyTheme: (theme: string) => void;
     onLock: () => void;
     onToast: (message: string, type?: string) => void;
+    /** 导入快照/清除痕迹后重置会话回到解锁页（参数为数据是否仍设有主密码） */
+    onSessionReset: (hasPassword: boolean) => void;
   } = $props();
 
   let items = $state<Item[]>([]);
@@ -44,6 +49,27 @@
   } | null>(null);
   let showSettings = $state(false);
   let showChangePassword = $state(false);
+  let showDb = $state(false);
+  let dbHasPassword = $state(true);
+
+  // 单行口令输入弹窗（Promise 化，供导出/导入流程等待口令）
+  let promptRequest = $state<{
+    title: string;
+    hint: string;
+    resolve: (value: string | null) => void;
+  } | null>(null);
+
+  function askPassphrase(title: string, hint = ""): Promise<string | null> {
+    return new Promise((resolve) => {
+      promptRequest = { title, hint, resolve };
+    });
+  }
+
+  function settlePrompt(value: string | null) {
+    const req = promptRequest;
+    promptRequest = null;
+    req?.resolve(value);
+  }
 
   const CATEGORIES = ["", "账号密码", "API密钥", "应用密钥", "私钥", "其他"];
 
@@ -305,6 +331,91 @@
       .catch((e) => onToast("保存设置失败: " + (typeof e === "string" ? e : String(e)), "err"));
   }
 
+  // ---------- 数据备份 / 迁移 / 清除痕迹（与 Go 版行为一致） ----------
+  async function openDbModal() {
+    try {
+      const st = await ipc.getStatus();
+      dbHasPassword = st.has_password;
+    } catch {
+      dbHasPassword = true;
+    }
+    showDb = true;
+  }
+
+  async function exportBackup(): Promise<boolean> {
+    const pw = await askPassphrase("设置迁移口令", "该口令用于加密迁移文件,请务必牢记");
+    if (pw === null) return false;
+    if (pw.trim().length < 4) {
+      onToast("迁移口令至少 4 个字符", "err");
+      return false;
+    }
+    try {
+      const data = await ipc.exportSnapshot(pw);
+      const saved = await ipc.saveSnapshotFile(data.filename, data.content);
+      if (!saved) {
+        onToast("未选择保存位置,导出已取消", "err");
+        return false;
+      }
+      onToast("已导出迁移文件: " + data.filename);
+      return true;
+    } catch (e) {
+      onToast("导出失败: " + (typeof e === "string" ? e : String(e)), "err");
+      return false;
+    }
+  }
+
+  async function handleImportFile(file: File) {
+    const text = await file.text();
+    const pw = await askPassphrase("输入迁移文件的口令", file.name);
+    if (pw === null) return;
+    try {
+      const res = await ipc.importSnapshot(pw, text);
+      onToast(`导入成功: ${res.items} 条数据`, "ok");
+      // 导入覆盖了本地数据，弃用当前会话，需用原主密码重新解锁
+      onSessionReset(res.has_password);
+    } catch (e) {
+      onToast("导入失败: " + (typeof e === "string" ? e : String(e)), "err");
+    }
+  }
+
+  function wipe() {
+    // 先关闭数据备份弹窗,避免它遮住后续的密码验证弹窗
+    showDb = false;
+    verifyAction = {
+      hint: "清除本地全部数据需要验证主密码,验证后还需先导出迁移文件",
+      run: async (password) => {
+        await ipc.verifyPassword(password);
+        await doWipe();
+      },
+    };
+  }
+
+  async function doWipe() {
+    // 1) 强制导出,导出失败/取消则中止
+    onToast("请先完成迁移文件导出");
+    const exported = await exportBackup();
+    if (!exported) {
+      onToast("未完成导出,已取消清除", "err");
+      return;
+    }
+    // 2) 导出成功后再做一次最终确认
+    confirmAction = {
+      title: "清除确认",
+      message: "迁移文件已保存。确定要彻底清除本地全部数据吗?此操作不可恢复!",
+      confirmText: "确定清除",
+      danger: true,
+      run: async () => {
+        try {
+          await ipc.wipe();
+          onToast("已清除本地全部数据", "ok");
+          onSessionReset(false);
+        } catch (e) {
+          onToast("清除失败: " + (typeof e === "string" ? e : String(e)), "err");
+        }
+      },
+    };
+  }
+
   // ---------- 修改主密码（与 Go 版 confirmChangePassword 行为一致） ----------
   async function changePassword(oldPassword: string, newPassword: string) {
     await ipc.changePassword(oldPassword, newPassword);
@@ -329,7 +440,7 @@
       <span>SecretBox</span>
     </div>
     <div class="topbar-actions">
-      <button id="dbBtn" class="btn btn-ghost btn-sm" title="数据库位置与状态">
+      <button id="dbBtn" class="btn btn-ghost btn-sm" title="数据库位置与状态" onclick={openDbModal}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <ellipse cx="12" cy="5" rx="9" ry="3" />
           <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
@@ -597,5 +708,26 @@
   <ChangePasswordModal
     onSubmit={changePassword}
     onCancel={() => (showChangePassword = false)}
+  />
+{/if}
+
+{#if showDb}
+  <DbModal
+    {items}
+    hasPassword={dbHasPassword}
+    onClose={() => (showDb = false)}
+    onExport={exportBackup}
+    onImportFile={handleImportFile}
+    onWipe={wipe}
+  />
+{/if}
+
+{#if promptRequest}
+  <PromptModal
+    title={promptRequest.title}
+    hint={promptRequest.hint}
+    placeholder="输入口令"
+    onSubmit={async (value) => settlePrompt(value)}
+    onCancel={() => settlePrompt(null)}
   />
 {/if}

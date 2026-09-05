@@ -5,6 +5,8 @@
 
 pub mod crypto;
 pub mod db;
+pub mod migration;
 
 pub use crypto::{decrypt, derive_key, encrypt, CryptoError};
 pub use db::{Db, Item, SecretboxError, Version};
+pub use migration::{backup_filename, build_file, parse_file, Snapshot, SnapshotItem, SnapshotVersion};

@@ -35,7 +35,9 @@
       busy = false;
       return;
     }
+    // 与 Go 版一致：验证成功先关闭弹窗，再执行后续动作（如清除痕迹的强制导出）
     busy = false;
+    onCancel();
   }
 
   function cancel() {

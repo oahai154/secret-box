@@ -7,11 +7,15 @@
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
-use secretbox_core::{Db, Item, Version};
+use secretbox_core::{
+    backup_filename, build_file, parse_file, Db, Item, SecretboxError, Snapshot, Version,
+};
 use tauri::State;
 
 /// 应用运行时状态：数据库句柄 + 解锁后的派生密钥（仅存内存）。
+/// 清除痕迹后 db 为 None（文件已删除），首次设置主密码时按 db_path 重建。
 pub struct AppState {
+    db_path: String,
     db: Mutex<Option<Db>>,
     key: Mutex<Option<Vec<u8>>>,
 }
@@ -38,7 +42,11 @@ pub fn run(db_path: &str) -> Result<(), String> {
             delete_version,
             get_version_snapshot,
             get_settings,
-            update_settings
+            update_settings,
+            export_snapshot,
+            import_snapshot,
+            wipe,
+            save_snapshot_file
         ])
         .run(tauri::generate_context!())
         .map_err(|err| format!("Tauri 应用运行异常: {err}"))?;
@@ -48,6 +56,7 @@ pub fn run(db_path: &str) -> Result<(), String> {
 fn open_state(db_path: &str) -> Result<AppState, String> {
     let db = Db::open(db_path).map_err(|err| format!("数据库初始化失败: {err}"))?;
     Ok(AppState {
+        db_path: db_path.to_string(),
         db: Mutex::new(Some(db)),
         key: Mutex::new(None),
     })
@@ -56,7 +65,14 @@ fn open_state(db_path: &str) -> Result<AppState, String> {
 // ---------- 命令实现（独立于 Tauri 宏，可测试） ----------
 
 /// 状态：是否已设置主密码、当前是否已解锁。
+/// 清除痕迹后数据库文件已删除，视为未设置主密码。
 fn status_impl(state: &AppState) -> Result<serde_json::Value, String> {
+    if state.db.lock().expect("数据库锁不可中毒").is_none() {
+        return Ok(serde_json::json!({
+            "has_password": false,
+            "unlocked": false,
+        }));
+    }
     with_db(state, |db| {
         Ok(serde_json::json!({
             "has_password": db.has_master_password(),
@@ -79,11 +95,18 @@ fn lock_impl(state: &AppState) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({ "locked": true }))
 }
 
-/// 首次设置主密码。
+/// 首次设置主密码。清除痕迹后数据库未打开，这里按路径重建。
 fn setup_password_impl(state: &AppState, password: &str) -> Result<serde_json::Value, String> {
     let trimmed = password.trim();
     if trimmed.chars().count() < 4 {
         return Err("主密码至少 4 个字符".to_string());
+    }
+    {
+        let mut guard = state.db.lock().expect("数据库锁不可中毒");
+        if guard.is_none() {
+            let db = Db::open(&state.db_path).map_err(|err| err.to_string())?;
+            *guard = Some(db);
+        }
     }
     let has_password = with_db(state, |db| Ok(db.has_master_password()))?;
     if has_password {
@@ -256,6 +279,85 @@ fn require_unlocked(state: &AppState) -> Result<Vec<u8>, String> {
     current_key(state).ok_or_else(|| "未解锁".to_string())
 }
 
+/// 导出快照迁移文件：返回建议文件名与文件内容（base64 文本）。
+/// 加密使用独立的"迁移口令"，与主密码无关。未解锁时拒绝。
+fn export_snapshot_impl(
+    state: &AppState,
+    password: &str,
+) -> Result<serde_json::Value, String> {
+    require_unlocked(state)?;
+    if password.trim().chars().count() < 4 {
+        return Err("迁移口令至少 4 个字符".to_string());
+    }
+    let content = with_db(state, |db| {
+        let snap = db.get_snapshot().map_err(|err| err.to_string())?;
+        build_file(&snap, password).map_err(|err| err.to_string())
+    })?;
+    Ok(serde_json::json!({
+        "filename": backup_filename(),
+        "content": content,
+    }))
+}
+
+/// 导入快照迁移文件并覆盖本地数据。成功后弃用当前会话，需重新解锁。
+fn import_snapshot_impl(
+    state: &AppState,
+    password: &str,
+    content: &str,
+) -> Result<serde_json::Value, String> {
+    require_unlocked(state)?;
+    let snap: Snapshot = parse_file(content, password).map_err(|err| match err {
+        SecretboxError::MigrationFormatInvalid => "迁移文件格式无效".to_string(),
+        SecretboxError::MigrationPassphraseWrong => "迁移口令错误或文件已损坏".to_string(),
+        SecretboxError::MigrationContentInvalid => "迁移文件内容无效".to_string(),
+        other => other.to_string(),
+    })?;
+    let item_count = snap.items.len();
+    let has_password = snap.has_password;
+    with_db(state, |db| {
+        db.restore_from_snapshot(&snap)
+            .map_err(|err| format!("恢复数据失败: {err}"))
+    })?;
+    // 弃用旧会话（与 Go 版一致：导入后需用原主密码重新解锁）
+    *state.key.lock().expect("密钥锁不可中毒") = None;
+    Ok(serde_json::json!({
+        "imported": true,
+        "has_password": has_password,
+        "items": item_count,
+    }))
+}
+
+/// 清除本地全部数据：清空表后关闭连接并删除数据库文件（含 WAL/SHM）。
+/// 导出前置与二次确认由前端把关。未解锁时拒绝。
+fn wipe_impl(state: &AppState) -> Result<serde_json::Value, String> {
+    require_unlocked(state)?;
+    let db = state
+        .db
+        .lock()
+        .expect("数据库锁不可中毒")
+        .take()
+        .ok_or_else(|| "数据库未打开".to_string())?;
+    db.wipe_and_remove_files().map_err(|err| err.to_string())?;
+    *state.key.lock().expect("密钥锁不可中毒") = None;
+    Ok(serde_json::json!({ "wiped": true }))
+}
+
+/// 把导出的快照内容保存为文件：弹原生"另存为"对话框，返回保存路径；取消返回空串。
+fn save_snapshot_file_impl(
+    filename: &str,
+    content: &str,
+) -> Result<String, String> {
+    let path = rfd::FileDialog::new().set_file_name(filename).save_file();
+    match path {
+        Some(path) => {
+            std::fs::write(&path, content)
+                .map_err(|err| format!("写入文件失败: {err}"))?;
+            Ok(path.display().to_string())
+        }
+        None => Ok(String::new()),
+    }
+}
+
 fn current_key(state: &AppState) -> Option<Vec<u8>> {
     state.key.lock().expect("密钥锁不可中毒").clone()
 }
@@ -378,6 +480,30 @@ fn update_settings(
     update_settings_impl(&state, &settings)
 }
 
+#[tauri::command]
+fn export_snapshot(state: State<AppState>, password: String) -> Result<serde_json::Value, String> {
+    export_snapshot_impl(&state, &password)
+}
+
+#[tauri::command]
+fn import_snapshot(
+    state: State<AppState>,
+    password: String,
+    content: String,
+) -> Result<serde_json::Value, String> {
+    import_snapshot_impl(&state, &password, &content)
+}
+
+#[tauri::command]
+fn wipe(state: State<AppState>) -> Result<serde_json::Value, String> {
+    wipe_impl(&state)
+}
+
+#[tauri::command]
+fn save_snapshot_file(filename: String, content: String) -> Result<String, String> {
+    save_snapshot_file_impl(&filename, &content)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -493,5 +619,64 @@ mod tests {
         lock_impl(&state).unwrap();
         assert!(unlock_impl(&state, "golden-test-password").is_err());
         unlock_impl(&state, "new-pass-123").unwrap();
+    }
+
+    #[test]
+    fn 导出导入快照回环_导入后需重新解锁() {
+        let (state, _tmp) = open_test_state();
+        unlock_impl(&state, "golden-test-password").unwrap();
+
+        // 口令过短拒绝
+        assert_eq!(
+            export_snapshot_impl(&state, "abc").unwrap_err(),
+            "迁移口令至少 4 个字符"
+        );
+
+        // 导出
+        let exported = export_snapshot_impl(&state, "迁移口令123").unwrap();
+        let filename = exported["filename"].as_str().unwrap();
+        let content = exported["content"].as_str().unwrap();
+        assert!(filename.starts_with("secretbox-backup-") && filename.ends_with(".secretbox"));
+
+        // 导入（口令错误被拒）
+        assert_eq!(
+            import_snapshot_impl(&state, "错误口令", content).unwrap_err(),
+            "迁移口令错误或文件已损坏"
+        );
+        let result = import_snapshot_impl(&state, "迁移口令123", content).unwrap();
+        assert_eq!(result["imported"], true);
+        assert_eq!(result["items"], 3);
+        assert_eq!(result["has_password"], true);
+
+        // 导入后旧会话被弃用
+        assert!(list_items_impl(&state).unwrap_err() == "未解锁");
+        // 原主密码可重新解锁，数据完整
+        unlock_impl(&state, "golden-test-password").unwrap();
+        assert_eq!(list_items_impl(&state).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn 清除痕迹后数据库文件被删除_可重新设置主密码() {
+        let (state, tmp) = open_test_state();
+        let db_copy = tmp.join("golden.db");
+        unlock_impl(&state, "golden-test-password").unwrap();
+
+        // 未解锁时拒绝
+        lock_impl(&state).unwrap();
+        assert_eq!(wipe_impl(&state).unwrap_err(), "未解锁");
+
+        unlock_impl(&state, "golden-test-password").unwrap();
+        let wiped = wipe_impl(&state).unwrap();
+        assert_eq!(wiped["wiped"], true);
+        assert!(!db_copy.exists(), "数据库文件必须被删除");
+        assert!(!tmp.join("golden.db-wal").exists(), "WAL 必须被删除");
+        assert!(!tmp.join("golden.db-shm").exists(), "SHM 必须被删除");
+
+        // 清除后状态为未设置主密码，可重新设置
+        let status = status_impl(&state).unwrap();
+        assert_eq!(status["has_password"], false);
+        assert_eq!(status["unlocked"], false);
+        setup_password_impl(&state, "brand-new-pass").unwrap();
+        assert_eq!(list_items_impl(&state).unwrap().len(), 0);
     }
 }
