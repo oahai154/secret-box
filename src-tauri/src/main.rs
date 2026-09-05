@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 
 fn main() {
-    let db_path = parse_db_arg().unwrap_or_else(default_db_path);
+    let db_path = parse_db_arg(std::env::args().skip(1)).unwrap_or_else(default_db_path);
 
     // 确保数据目录存在（与 Go 版一致）
     if let Some(parent) = db_path.parent() {
@@ -21,18 +21,15 @@ fn main() {
 }
 
 /// 解析 `--db <路径>` 或 `--db=<路径>`。
-fn parse_db_arg() -> Option<PathBuf> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let mut i = 0;
-    while i < args.len() {
-        let arg = &args[i];
+fn parse_db_arg(args: impl Iterator<Item = String>) -> Option<PathBuf> {
+    let mut iter = args.peekable();
+    while let Some(arg) = iter.next() {
         if arg == "--db" {
-            return args.get(i + 1).map(PathBuf::from);
+            return iter.next().map(PathBuf::from);
         }
         if let Some(value) = arg.strip_prefix("--db=") {
             return Some(PathBuf::from(value));
         }
-        i += 1;
     }
     None
 }
@@ -65,4 +62,59 @@ fn default_db_path() -> PathBuf {
         }
     }
     PathBuf::from("secretbox.db")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(values: &[&str]) -> Vec<String> {
+        values.iter().map(|v| v.to_string()).collect()
+    }
+
+    #[test]
+    fn db_参数_空格分隔() {
+        assert_eq!(
+            parse_db_arg(args(&["--db", "D:\\portable\\sb.db"]).into_iter()),
+            Some(PathBuf::from("D:\\portable\\sb.db"))
+        );
+    }
+
+    #[test]
+    fn db_参数_等号分隔() {
+        assert_eq!(
+            parse_db_arg(args(&["--db=C:\\data\\sb.db"]).into_iter()),
+            Some(PathBuf::from("C:\\data\\sb.db"))
+        );
+    }
+
+    #[test]
+    fn db_参数_忽略其他参数() {
+        assert_eq!(
+            parse_db_arg(args(&["--port", "8080", "--db", "x.db", "--no-open"]).into_iter()),
+            Some(PathBuf::from("x.db"))
+        );
+    }
+
+    #[test]
+    fn db_参数_缺失时返回_none() {
+        assert_eq!(parse_db_arg(args(&[]).into_iter()), None);
+        assert_eq!(parse_db_arg(args(&["--db"]).into_iter()), None);
+        assert_eq!(parse_db_arg(args(&["--port", "8080"]).into_iter()), None);
+    }
+
+    #[test]
+    fn 默认路径_优先_localappdata() {
+        // 以真实环境变量解析，仅断言目录名与文件名，不依赖具体盘符。
+        if let Ok(dir) = std::env::var("LOCALAPPDATA") {
+            if !dir.is_empty() {
+                assert_eq!(
+                    default_db_path(),
+                    PathBuf::from(dir).join("SecretBox").join("secretbox.db")
+                );
+                return;
+            }
+        }
+        assert!(default_db_path().ends_with("secretbox.db"));
+    }
 }
