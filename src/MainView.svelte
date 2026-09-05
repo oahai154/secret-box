@@ -26,10 +26,21 @@
   let valueVisible = $state(false);
   let creating = $state(false);
   let categoryOpen = $state(false);
+  /** 正在"查看"的历史版本号（null 表示显示当前内容） */
+  let viewingVersion = $state<number | null>(null);
 
-  // 弹窗状态
-  let showConfirmDelete = $state(false);
-  let showVerifyDelete = $state(false);
+  // 弹窗状态：确认弹窗与主密码验证弹窗由待执行动作驱动
+  let confirmAction = $state<{
+    title: string;
+    message: string;
+    confirmText: string;
+    danger?: boolean;
+    run: () => void;
+  } | null>(null);
+  let verifyAction = $state<{
+    hint: string;
+    run: (password: string) => Promise<void>;
+  } | null>(null);
   let showSettings = $state(false);
 
   const CATEGORIES = ["", "账号密码", "API密钥", "应用密钥", "私钥", "其他"];
@@ -70,6 +81,7 @@
     currentId = id;
     creating = false;
     valueVisible = false;
+    viewingVersion = null;
     try {
       const [it, vs] = await Promise.all([ipc.getItem(id), ipc.listVersions(id)]);
       it.value = it.value ?? "";
@@ -94,6 +106,7 @@
     creating = true;
     currentId = null;
     valueVisible = false;
+    viewingVersion = null;
     detail = {
       id: 0,
       title: "",
@@ -144,16 +157,25 @@
       onToast("请先选择条目", "err");
       return;
     }
-    showConfirmDelete = true;
-  }
-
-  function confirmDelete() {
-    showConfirmDelete = false;
-    if (settings.delete_requires_password === "true") {
-      showVerifyDelete = true;
-    } else {
-      doDelete();
-    }
+    confirmAction = {
+      title: "删除确认",
+      message: "确定删除该条目吗?其所有历史版本也将被删除。",
+      confirmText: "确定删除",
+      danger: true,
+      run: () => {
+        if (settings.delete_requires_password === "true") {
+          verifyAction = {
+            hint: "删除条目需要验证主密码",
+            run: async (password) => {
+              await ipc.verifyPassword(password);
+              await doDelete();
+            },
+          };
+        } else {
+          doDelete();
+        }
+      },
+    };
   }
 
   async function doDelete() {
@@ -172,10 +194,65 @@
     }
   }
 
-  async function verifyDelete(password: string) {
-    await ipc.verifyPassword(password);
-    showVerifyDelete = false;
-    await doDelete();
+  // ---------- 历史版本：查看 / 恢复 / 删除（恢复/删除与 Go 版行为一致） ----------
+  async function viewVersion(version: number) {
+    if (!detail || currentId === null) return;
+    try {
+      const snapshot = await ipc.getVersionSnapshot(currentId, version);
+      if (detail) detail.value = snapshot;
+      valueVisible = true;
+      viewingVersion = version;
+      onToast("正在查看 v" + version + " 的内容");
+    } catch (e) {
+      onToast(typeof e === "string" ? e : String(e), "err");
+    }
+  }
+
+  function restoreVersion(version: number) {
+    confirmAction = {
+      title: "还原确认",
+      message: "确定将当前内容还原为该版本吗?还原会生成一条新的修改记录。",
+      confirmText: "还原",
+      run: async () => {
+        try {
+          const it = await ipc.restoreVersion(currentId!, version);
+          it.value = it.value ?? "";
+          it.note = it.note ?? "";
+          detail = it;
+          viewingVersion = null;
+          items = await ipc.listItems();
+          versions = await ipc.listVersions(currentId!);
+          onToast("已还原到 v" + version);
+        } catch (e) {
+          onToast(typeof e === "string" ? e : String(e), "err");
+        }
+      },
+    };
+  }
+
+  function deleteVersion(version: number) {
+    if (settings.delete_version_requires_password === "true") {
+      verifyAction = {
+        hint: "删除历史版本需要验证主密码",
+        run: async (password) => {
+          await ipc.verifyPassword(password);
+          await doDeleteVersion(version);
+        },
+      };
+    } else {
+      doDeleteVersion(version);
+    }
+  }
+
+  async function doDeleteVersion(version: number) {
+    try {
+      await ipc.deleteVersion(currentId!, version);
+      onToast("已删除 v" + version);
+      if (viewingVersion === version) viewingVersion = null;
+      versions = await ipc.listVersions(currentId!);
+    } catch (e) {
+      onToast(typeof e === "string" ? e : String(e), "err");
+    }
   }
 
   // ---------- 分类选择（与 Go 版自定义下拉一致） ----------
@@ -442,13 +519,25 @@
             <div id="historyList" class="history-list">
               {#each versions as v (v.id)}
                 <div class="history-item">
-                  <div>
+                  <!-- 点击版本号区域查看该版本内容 -->
+                  <!-- svelte-ignore a11y_no_static_element_interactions -->
+                  <!-- svelte-ignore a11y_click_events_have_key_events -->
+                  <div onclick={() => viewVersion(v.version)} title="点击查看该版本内容">
                     <span class="hver">v{v.version}</span>
                     <span class="htime">{formatTime(v.created_at)}</span>
                   </div>
                   <div class="history-actions">
-                    <button class="restore-btn" type="button">还原</button>
-                    <button class="delete-ver-btn" type="button" title="删除此版本">✕</button>
+                    <button class="restore-btn" type="button" onclick={() => restoreVersion(v.version)}>
+                      还原
+                    </button>
+                    <button
+                      class="delete-ver-btn"
+                      type="button"
+                      title="删除此版本"
+                      onclick={() => deleteVersion(v.version)}
+                    >
+                      ✕
+                    </button>
                   </div>
                 </div>
               {/each}
@@ -460,21 +549,26 @@
   </div>
 </div>
 
-{#if showConfirmDelete && detail}
+{#if confirmAction}
   <ConfirmModal
-    title="删除确认"
-    message="确定删除该条目吗?其所有历史版本也将被删除。"
-    confirmText="确定删除"
-    onConfirm={confirmDelete}
-    onCancel={() => (showConfirmDelete = false)}
+    title={confirmAction.title}
+    message={confirmAction.message}
+    confirmText={confirmAction.confirmText}
+    danger={confirmAction.danger ?? false}
+    onConfirm={() => {
+      const run = confirmAction?.run;
+      confirmAction = null;
+      run?.();
+    }}
+    onCancel={() => (confirmAction = null)}
   />
 {/if}
 
-{#if showVerifyDelete}
+{#if verifyAction}
   <VerifyModal
-    hint="删除条目需要验证主密码"
-    onVerify={verifyDelete}
-    onCancel={() => (showVerifyDelete = false)}
+    hint={verifyAction.hint}
+    onVerify={(password) => verifyAction!.run(password)}
+    onCancel={() => (verifyAction = null)}
   />
 {/if}
 

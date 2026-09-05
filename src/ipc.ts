@@ -42,6 +42,9 @@ export interface SecretboxIpc {
   updateItem(id: number, input: ItemInput): Promise<Item>;
   deleteItem(id: number): Promise<void>;
   listVersions(id: number): Promise<Version[]>;
+  getVersionSnapshot(id: number, version: number): Promise<string>;
+  restoreVersion(id: number, version: number): Promise<Item>;
+  deleteVersion(id: number, version: number): Promise<void>;
   getSettings(): Promise<Settings>;
   updateSettings(updates: Settings): Promise<void>;
 }
@@ -87,6 +90,12 @@ function createTauriIpc(): SecretboxIpc {
       }),
     deleteItem: (id: number) => invoke<void>("delete_item", { id }),
     listVersions: (id: number) => invoke<Version[]>("list_versions", { id }),
+    getVersionSnapshot: (id: number, version: number) =>
+      invoke<string>("get_version_snapshot", { id, version }),
+    restoreVersion: (id: number, version: number) =>
+      invoke<Item>("restore_version", { id, version }),
+    deleteVersion: (id: number, version: number) =>
+      invoke<void>("delete_version", { id, version }),
     getSettings: () => invoke<Settings>("get_settings"),
     updateSettings: (updates: Settings) => invoke<void>("update_settings", { settings: updates }),
   };

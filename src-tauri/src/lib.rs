@@ -33,6 +33,9 @@ pub fn run(db_path: &str) -> Result<(), String> {
             update_item,
             delete_item,
             list_versions,
+            restore_version,
+            delete_version,
+            get_version_snapshot,
             get_settings,
             update_settings
         ])
@@ -166,6 +169,33 @@ fn delete_item_impl(state: &AppState, id: i64) -> Result<(), String> {
     })
 }
 
+/// 恢复历史版本（快照内容作为新修改写入，产生新版本记录）。未解锁时拒绝。
+fn restore_version_impl(state: &AppState, id: i64, version: i64) -> Result<Item, String> {
+    let key = require_unlocked(state)?;
+    with_db(state, |db| {
+        db.restore_version(&key, id, version)
+            .map_err(|err| err.to_string())
+    })
+}
+
+/// 删除历史版本。未解锁时拒绝。
+fn delete_version_impl(state: &AppState, id: i64, version: i64) -> Result<(), String> {
+    let _key = require_unlocked(state)?;
+    with_db(state, |db| {
+        db.delete_version(id, version)
+            .map_err(|err| err.to_string())
+    })
+}
+
+/// 读取某历史版本的快照明文（用于"查看历史版本"）。未解锁时拒绝。
+fn get_version_snapshot_impl(state: &AppState, id: i64, version: i64) -> Result<String, String> {
+    let key = require_unlocked(state)?;
+    with_db(state, |db| {
+        db.get_version_snapshot(&key, id, version)
+            .map_err(|err| err.to_string())
+    })
+}
+
 /// 写入设置项。
 fn update_settings_impl(state: &AppState, settings: &BTreeMap<String, String>) -> Result<(), String> {
     with_db(state, |db| {
@@ -289,6 +319,21 @@ fn update_item(
 #[tauri::command]
 fn delete_item(state: State<AppState>, id: i64) -> Result<(), String> {
     delete_item_impl(&state, id)
+}
+
+#[tauri::command]
+fn restore_version(state: State<AppState>, id: i64, version: i64) -> Result<Item, String> {
+    restore_version_impl(&state, id, version)
+}
+
+#[tauri::command]
+fn delete_version(state: State<AppState>, id: i64, version: i64) -> Result<(), String> {
+    delete_version_impl(&state, id, version)
+}
+
+#[tauri::command]
+fn get_version_snapshot(state: State<AppState>, id: i64, version: i64) -> Result<String, String> {
+    get_version_snapshot_impl(&state, id, version)
 }
 
 #[tauri::command]

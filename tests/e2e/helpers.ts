@@ -116,6 +116,30 @@ export function injectMockIpc(page: Page): void {
             created_at: v.created_at,
           }));
         },
+        getVersionSnapshot: async (id, version) => {
+          const it = store.get(id);
+          if (!it) throw "条目不存在";
+          const v = (it.versions || []).find((x) => x.version === version);
+          if (!v) throw "版本不存在";
+          return v.snapshot;
+        },
+        restoreVersion: async (id, version) => {
+          const it = store.get(id);
+          if (!it) throw "条目不存在";
+          const v = (it.versions || []).find((x) => x.version === version);
+          if (!v) throw "版本不存在";
+          it.value = v.snapshot;
+          it.updated_at = nowIso();
+          it.version_count = (it.version_count || 0) + 1;
+          it.versions = it.versions || [];
+          it.versions.push({ version: it.version_count, created_at: it.updated_at, snapshot: v.snapshot });
+          return { ...it };
+        },
+        deleteVersion: async (id, version) => {
+          const it = store.get(id);
+          if (!it) throw "条目不存在";
+          it.versions = (it.versions || []).filter((x) => x.version !== version);
+        },
         getSettings: async () => ({ ...settings }),
         updateSettings: async (updates) => {
           Object.assign(settings, updates);

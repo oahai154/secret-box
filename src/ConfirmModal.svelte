@@ -4,12 +4,14 @@
     title,
     message,
     confirmText = "确认",
+    danger = false,
     onConfirm,
     onCancel,
   }: {
     title: string;
     message: string;
     confirmText?: string;
+    danger?: boolean;
     onConfirm: () => void;
     onCancel: () => void;
   } = $props();
@@ -25,7 +27,13 @@
     <p class="verify-hint">{message}</p>
     <div class="modal-actions">
       <button class="btn btn-ghost" type="button" onclick={onCancel}>取消</button>
-      <button class="btn btn-danger" type="button" onclick={onConfirm}>{confirmText}</button>
+      <button
+        class="btn {danger ? 'btn-danger' : 'btn-primary'}"
+        type="button"
+        onclick={onConfirm}
+      >
+        {confirmText}
+      </button>
     </div>
   </div>
 </div>

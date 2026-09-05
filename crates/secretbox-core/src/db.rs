@@ -152,6 +152,14 @@ impl Db {
         self.salt.as_ref().map(|s| BASE64.encode(s))
     }
 
+    /// 把 WAL 日志合并进主数据库文件（供外部复制单个 .db 文件前调用）。
+    pub fn checkpoint_wal(&self) -> Result<(), SecretboxError> {
+        // PRAGMA 会返回一行统计结果，用 query_row 执行
+        self.conn
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| Ok(()))?;
+        Ok(())
+    }
+
     /// 从 meta 表重新读取盐值。
     pub fn reload_salt(&mut self) -> Result<(), SecretboxError> {
         self.salt = match self
@@ -456,5 +464,30 @@ impl Db {
         self.conn
             .execute("DELETE FROM secret_items WHERE id = ?1", [id])?;
         Ok(())
+    }
+
+    /// 删除指定历史版本（与 Go 版 DeleteVersion 一致，不存在时报错）。
+    pub fn delete_version(&self, secret_id: i64, version: i64) -> Result<(), SecretboxError> {
+        let affected = self.conn.execute(
+            "DELETE FROM secret_versions WHERE secret_id = ?1 AND version = ?2",
+            [secret_id, version],
+        )?;
+        if affected == 0 {
+            return Err(SecretboxError::VersionNotFound);
+        }
+        Ok(())
+    }
+
+    /// 恢复历史版本：把指定版本的快照内容作为新修改写入条目（与 Go 版 handleRestore 一致，
+    /// 会产生一个新版本记录）。保留条目当前的标题/分类/备注，返回恢复后的最新条目。
+    pub fn restore_version(
+        &self,
+        key: &[u8],
+        secret_id: i64,
+        version: i64,
+    ) -> Result<Item, SecretboxError> {
+        let content = self.get_version_snapshot(key, secret_id, version)?;
+        let item = self.get_item(key, secret_id)?;
+        self.update_item(key, secret_id, &item.title, &item.category, &item.note, &content)
     }
 }
