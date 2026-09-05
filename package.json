@@ -10,7 +10,9 @@
     "tauri": "tauri",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "e2e": "playwright test",
-    "baseline": "node tests/e2e/capture-baselines.mjs"
+    "baseline": "node tests/e2e/capture-baselines.mjs",
+    "visual": "playwright test visual",
+    "test": "playwright test"
   },
   "dependencies": {
     "@tauri-apps/api": "^2"

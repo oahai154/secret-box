@@ -82,6 +82,75 @@ try {
   await page.screenshot({ path: path.join(ROOT, "tests", "e2e", "baselines", "new.png") });
   console.log("已截取新增页基准 new.png");
 
+  // 保密内容显示态（点击显示）
+  await page.click("#itemList .item:nth-child(1)");
+  await page.waitForSelector("#toggleValueBtn");
+  await page.click("#toggleValueBtn");
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: path.join(ROOT, "tests", "e2e", "baselines", "value-visible.png") });
+  console.log("已截取保密内容显示态基准 value-visible.png");
+
+  // 历史版本面板（公司邮箱有 3 个版本，滚动到面板）
+  await page.click("#itemList .item:nth-child(2)");
+  await page.waitForSelector("#historyPanel:not(.hidden)");
+  await page.locator("#historyPanel").scrollIntoViewIfNeeded();
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: path.join(ROOT, "tests", "e2e", "baselines", "history.png") });
+  console.log("已截取历史版本页基准 history.png");
+
+  // 设置弹窗（先恢复到条目 1 + 滚动复位，保证弹窗背后的页面状态两侧一致）
+  await page.click("#itemList .item:nth-child(1)");
+  await page.evaluate(() => {
+    window.scrollTo(0, 0);
+    document.querySelectorAll("*").forEach((el) => {
+      if (el.scrollTop) el.scrollTop = 0;
+      if (el.scrollLeft) el.scrollLeft = 0;
+    });
+  });
+  await page.waitForTimeout(300);
+  await page.click("#settingsBtn");
+  await page.waitForSelector("#settingsModal:not(.hidden)");
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: path.join(ROOT, "tests", "e2e", "baselines", "settings.png") });
+  console.log("已截取设置弹窗基准 settings.png");
+
+  // 修改密码弹窗
+  await page.click("#changePasswordBtn");
+  await page.waitForSelector("#changePasswordModal:not(.hidden)");
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: path.join(ROOT, "tests", "e2e", "baselines", "change-password.png") });
+  console.log("已截取修改密码弹窗基准 change-password.png");
+
+  // 数据备份与迁移弹窗
+  await page.click("#cancelPasswordBtn");
+  await page.click("#settingsCloseBtn");
+  await page.waitForTimeout(200);
+  await page.click("#dbBtn");
+  await page.waitForSelector("#dbModal:not(.hidden)");
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: path.join(ROOT, "tests", "e2e", "baselines", "db.png") });
+  console.log("已截取数据备份弹窗基准 db.png");
+
+  // 空列表态：逐个删除全部条目（删除确认走原生 confirm，删除需验证主密码）
+  await page.on("dialog", (dialog) => dialog.accept());
+  await page.click("#dbCloseBtn");
+  const deleteAll = async () => {
+    while (await page.locator("#itemList .item").count()) {
+      await page.click("#itemList .item:nth-child(1)");
+      await page.waitForTimeout(300);
+      await page.click("#deleteBtn");
+      await page.waitForSelector("#verifyPasswordModal:not(.hidden)");
+      await page.fill("#verifyPasswordInput", PASSWORD);
+      await page.click("#confirmVerifyBtn");
+      await page.waitForTimeout(600);
+    }
+  };
+  await deleteAll();
+  await page.waitForSelector("#itemList .item-empty");
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: path.join(ROOT, "tests", "e2e", "baselines", "empty.png") });
+  console.log("已截取空列表态基准 empty.png");
+
   await browser.close();
 } finally {
   try {

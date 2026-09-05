@@ -82,4 +82,130 @@ test.describe("视觉对照（与 Go 版基准）", () => {
     const check = expectSameAsBaseline(page, "new.png");
     await check();
   });
+
+  test("保密内容显示态", async ({ page }) => {
+    injectMockIpc(page);
+    await page.goto("/");
+    await page.fill("#authPassword", "golden-test-password");
+    await page.click("#authBtn");
+    await expect(page.locator("#itemList .item")).toHaveCount(3);
+    await page.waitForTimeout(2500);
+    await page.click("#toggleValueBtn");
+    await page.waitForTimeout(300);
+    const check = expectSameAsBaseline(page, "value-visible.png");
+    await check();
+  });
+
+  test("历史版本面板", async ({ page }) => {
+    injectMockIpc(page);
+    await page.goto("/");
+    await page.fill("#authPassword", "golden-test-password");
+    await page.click("#authBtn");
+    await expect(page.locator("#itemList .item")).toHaveCount(3);
+    await page.waitForTimeout(2500);
+    // 选中第二个条目（公司邮箱，含 3 个版本）并滚动到历史面板
+    await page.click("#itemList .item:nth-child(2)");
+    await expect(page.locator("#historyPanel")).toBeVisible();
+    await page.locator("#historyPanel").scrollIntoViewIfNeeded();
+    await page.waitForTimeout(300);
+    const check = expectSameAsBaseline(page, "history.png");
+    await check();
+  });
+
+  test("设置弹窗", async ({ page }) => {
+    injectMockIpc(page);
+    await page.goto("/");
+    await page.fill("#authPassword", "golden-test-password");
+    await page.click("#authBtn");
+    await expect(page.locator("#itemList .item")).toHaveCount(3);
+    await page.waitForTimeout(2500);
+    // 与 Go 基准一致：条目 1 + 页面顶部
+    await page.click("#itemList .item:nth-child(1)");
+    await page.evaluate(() => {
+      window.scrollTo(0, 0);
+      document.querySelectorAll("*").forEach((el) => {
+        if (el.scrollTop) el.scrollTop = 0;
+        if (el.scrollLeft) el.scrollLeft = 0;
+      });
+    });
+    await page.waitForTimeout(300);
+    await page.click("#settingsBtn");
+    await expect(page.locator(".card-settings")).toBeVisible();
+    await page.waitForTimeout(300);
+    const check = expectSameAsBaseline(page, "settings.png");
+    await check();
+  });
+
+  test("修改密码弹窗", async ({ page }) => {
+    injectMockIpc(page);
+    await page.goto("/");
+    await page.fill("#authPassword", "golden-test-password");
+    await page.click("#authBtn");
+    await expect(page.locator("#itemList .item")).toHaveCount(3);
+    await page.waitForTimeout(2500);
+    await page.click("#itemList .item:nth-child(1)");
+    await page.evaluate(() => {
+      window.scrollTo(0, 0);
+      document.querySelectorAll("*").forEach((el) => {
+        if (el.scrollTop) el.scrollTop = 0;
+        if (el.scrollLeft) el.scrollLeft = 0;
+      });
+    });
+    await page.waitForTimeout(300);
+    await page.click("#settingsBtn");
+    await expect(page.locator(".card-settings")).toBeVisible();
+    await page.click("#changePasswordBtn");
+    await expect(page.locator(".card-password")).toBeVisible();
+    await page.waitForTimeout(300);
+    const check = expectSameAsBaseline(page, "change-password.png");
+    await check();
+  });
+
+  test("数据备份与迁移弹窗", async ({ page }) => {
+    injectMockIpc(page);
+    await page.goto("/");
+    await page.fill("#authPassword", "golden-test-password");
+    await page.click("#authBtn");
+    await expect(page.locator("#itemList .item")).toHaveCount(3);
+    await page.waitForTimeout(2500);
+    await page.click("#itemList .item:nth-child(1)");
+    await page.evaluate(() => {
+      window.scrollTo(0, 0);
+      document.querySelectorAll("*").forEach((el) => {
+        if (el.scrollTop) el.scrollTop = 0;
+        if (el.scrollLeft) el.scrollLeft = 0;
+      });
+    });
+    await page.waitForTimeout(300);
+    await page.click("#dbBtn");
+    await expect(page.locator(".card-db")).toBeVisible();
+    await page.waitForTimeout(300);
+    const check = expectSameAsBaseline(page, "db.png");
+    await check();
+  });
+
+  test("空列表态", async ({ page }) => {
+    injectMockIpc(page);
+    await page.goto("/");
+    await page.fill("#authPassword", "golden-test-password");
+    await page.click("#authBtn");
+    await expect(page.locator("#itemList .item")).toHaveCount(3);
+    await page.waitForTimeout(2500);
+    // 逐个删除全部条目（与 Go 基准流程一致；确认弹窗为自定义组件）
+    while (await page.locator("#itemList .item").count()) {
+      await page.click("#itemList .item:nth-child(1)");
+      await page.waitForTimeout(300);
+      await page.click("#deleteBtn");
+      // 自定义确认弹窗（Go 侧为原生 confirm，不出现在两侧截图状态中）
+      await page.locator(".modal").filter({ hasText: "删除确认" }).getByRole("button", { name: "确定删除" }).click();
+      await page.waitForSelector("#verifyPasswordInput");
+      await page.fill("#verifyPasswordInput", "golden-test-password");
+      await page.click("#confirmVerifyBtn");
+      await page.waitForTimeout(600);
+    }
+    await expect(page.locator("#itemList .item-empty")).toBeVisible();
+    await page.waitForTimeout(400);
+    const check = expectSameAsBaseline(page, "empty.png");
+    await check();
+  });
 });
