@@ -27,6 +27,7 @@ pub fn run(db_path: &str) -> Result<(), String> {
             lock,
             setup_password,
             verify_password,
+            change_password,
             list_items,
             get_item,
             create_item,
@@ -119,6 +120,30 @@ fn verify_password_impl(state: &AppState, password: &str) -> Result<(), String> 
     with_db(state, |db| {
         db.unlock(password).map(|_| ()).map_err(|err| err.to_string())
     })
+}
+
+/// 修改主密码：先验证旧密码，再全量重加密并把会话密钥换成新密码派生的密钥。
+fn change_password_impl(
+    state: &AppState,
+    old_password: &str,
+    new_password: &str,
+) -> Result<serde_json::Value, String> {
+    require_unlocked(state)?;
+    if old_password.is_empty() {
+        return Err("密码不能为空".to_string());
+    }
+    if new_password.chars().count() < 4 {
+        return Err("新密码至少 4 位".to_string());
+    }
+    let new_key = with_db(state, |db| {
+        // 旧密码错误会在这里报"解密失败"，改密不会发生
+        let old_key = db.unlock(old_password).map_err(|err| err.to_string())?;
+        db.change_password(&old_key, new_password)
+            .map_err(|err| err.to_string())
+    })?;
+    let key_len = new_key.len();
+    *state.key.lock().expect("密钥锁不可中毒") = Some(new_key);
+    Ok(serde_json::json!({ "key_len": key_len }))
 }
 
 /// 新增条目，返回新 ID。未解锁时拒绝。
@@ -294,6 +319,15 @@ fn verify_password(state: State<AppState>, password: String) -> Result<(), Strin
 }
 
 #[tauri::command]
+fn change_password(
+    state: State<AppState>,
+    old_password: String,
+    new_password: String,
+) -> Result<serde_json::Value, String> {
+    change_password_impl(&state, &old_password, &new_password)
+}
+
+#[tauri::command]
 fn create_item(
     state: State<AppState>,
     title: String,
@@ -421,5 +455,43 @@ mod tests {
     fn 已设主密码的库不允许再次设置() {
         let (state, _tmp) = open_test_state();
         assert!(setup_password_impl(&state, "new-password").is_err());
+    }
+
+    #[test]
+    fn 改密后旧密码失效_新密码可解锁且数据完整() {
+        let (state, _tmp) = open_test_state();
+        unlock_impl(&state, "golden-test-password").unwrap();
+        let before = list_items_impl(&state).unwrap();
+        let mut values = Vec::new();
+        for it in &before {
+            values.push(get_item_impl(&state, it.id).unwrap().value);
+        }
+
+        // 校验不过关的输入直接拒绝
+        assert_eq!(
+            change_password_impl(&state, "", "new-pass").unwrap_err(),
+            "密码不能为空"
+        );
+        assert_eq!(
+            change_password_impl(&state, "golden-test-password", "abc").unwrap_err(),
+            "新密码至少 4 位"
+        );
+
+        // 旧密码错误：改密失败，会话密钥仍可读数据
+        assert!(change_password_impl(&state, "错误旧密码", "new-pass-123").is_err());
+        assert!(get_item_impl(&state, before[0].id).is_ok());
+
+        // 正确改密：成功，数据在重加密后明文不变
+        change_password_impl(&state, "golden-test-password", "new-pass-123").unwrap();
+        let after = list_items_impl(&state).unwrap();
+        assert_eq!(after.len(), before.len());
+        for (it, value) in after.iter().zip(values.iter()) {
+            assert_eq!(get_item_impl(&state, it.id).unwrap().value, *value);
+        }
+
+        // 锁定后只有新密码能解锁
+        lock_impl(&state).unwrap();
+        assert!(unlock_impl(&state, "golden-test-password").is_err());
+        unlock_impl(&state, "new-pass-123").unwrap();
     }
 }

@@ -65,6 +65,11 @@ export function injectMockIpc(page: Page): void {
         verifyPassword: async (password) => {
           if (password !== fix.password) throw "密码不正确";
         },
+        changePassword: async (oldPassword, newPassword) => {
+          if (oldPassword !== fix.password) throw "解密失败(主密码可能不正确)";
+          if (!newPassword || newPassword.length < 4) throw "新密码至少 4 位";
+          fix.password = newPassword;
+        },
         listItems: async () =>
           [...store.values()].map((it) => ({
             id: it.id,

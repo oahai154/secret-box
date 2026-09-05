@@ -36,6 +36,7 @@ export interface SecretboxIpc {
   lock(): Promise<void>;
   setupPassword(password: string): Promise<void>;
   verifyPassword(password: string): Promise<void>;
+  changePassword(oldPassword: string, newPassword: string): Promise<void>;
   listItems(): Promise<Item[]>;
   getItem(id: number): Promise<Item>;
   createItem(input: ItemInput): Promise<number>;
@@ -70,6 +71,9 @@ function createTauriIpc(): SecretboxIpc {
     },
     verifyPassword: async (password: string) => {
       await invoke("verify_password", { password });
+    },
+    changePassword: async (oldPassword: string, newPassword: string) => {
+      await invoke("change_password", { oldPassword, newPassword });
     },
     listItems: () => invoke<Item[]>("list_items"),
     getItem: (id: number) => invoke<Item>("get_item", { id }),

@@ -6,10 +6,12 @@
     settings,
     onSave,
     onClose,
+    onChangePassword,
   }: {
     settings: Settings;
     onSave: (updates: Settings) => void;
     onClose: () => void;
+    onChangePassword: () => void;
   } = $props();
 
   let autoLock = $state("120");
@@ -102,7 +104,7 @@
           <div class="settings-label-desc">更改主密码,所有数据将重新加密</div>
         </div>
         <div class="settings-control">
-          <button id="changePasswordBtn" class="btn btn-ghost btn-sm" type="button" title="后续版本提供">
+          <button id="changePasswordBtn" class="btn btn-ghost btn-sm" type="button" onclick={onChangePassword}>
             修改
           </button>
         </div>

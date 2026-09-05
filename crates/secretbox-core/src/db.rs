@@ -156,7 +156,7 @@ impl Db {
     pub fn checkpoint_wal(&self) -> Result<(), SecretboxError> {
         // PRAGMA 会返回一行统计结果，用 query_row 执行
         self.conn
-            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| Ok(()))?;
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_row| Ok(()))?;
         Ok(())
     }
 
@@ -476,6 +476,67 @@ impl Db {
             return Err(SecretboxError::VersionNotFound);
         }
         Ok(())
+    }
+
+    /// 修改主密码：全部条目与历史版本用新密码重新加密，更新 meta 盐值
+    /// （与 Go 版 ChangePassword 一致：新随机盐 + 事务内重加密 + 更新 meta）。
+    /// `old_key` 为旧密码派生的当前会话密钥；任一密文解密失败即整体回滚。
+    /// 返回新派生密钥，调用方应更新会话密钥。
+    pub fn change_password(
+        &mut self,
+        old_key: &[u8],
+        new_password: &str,
+    ) -> Result<Vec<u8>, SecretboxError> {
+        // 先读出全部密文（条目 + 历史版本），避免事务内遍历与更新互相干扰
+        let mut item_rows: Vec<(i64, String)> = {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT id, encrypted_value FROM secret_items")?;
+            let rows = stmt
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows
+        };
+        let version_rows: Vec<(i64, String)> = {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT id, encrypted_snapshot FROM secret_versions")?;
+            let rows = stmt
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows
+        };
+
+        // 用新随机盐派生新密钥
+        let (new_key, new_salt) = crypto::derive_key(new_password, &[])?;
+
+        let tx = self.conn.unchecked_transaction()?;
+        for (id, enc) in &item_rows {
+            let plain = crypto::decrypt(old_key, enc)?;
+            let re_encrypted = crypto::encrypt(&new_key, &plain)?;
+            tx.execute(
+                "UPDATE secret_items SET encrypted_value = ?1 WHERE id = ?2",
+                rusqlite::params![re_encrypted, id],
+            )?;
+        }
+        for (id, enc) in &version_rows {
+            let plain = crypto::decrypt(old_key, enc)?;
+            let re_encrypted = crypto::encrypt(&new_key, &plain)?;
+            tx.execute(
+                "UPDATE secret_versions SET encrypted_snapshot = ?1 WHERE id = ?2",
+                rusqlite::params![re_encrypted, id],
+            )?;
+        }
+        // 更新盐值
+        tx.execute(
+            "INSERT INTO meta(key,value) VALUES('salt',?1)
+             ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            [&BASE64.encode(&new_salt)],
+        )?;
+        tx.commit()?;
+
+        self.salt = Some(new_salt);
+        Ok(new_key)
     }
 
     /// 恢复历史版本：把指定版本的快照内容作为新修改写入条目（与 Go 版 handleRestore 一致，

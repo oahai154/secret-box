@@ -3,6 +3,7 @@
   import ConfirmModal from "./ConfirmModal.svelte";
   import VerifyModal from "./VerifyModal.svelte";
   import SettingsModal from "./SettingsModal.svelte";
+  import ChangePasswordModal from "./ChangePasswordModal.svelte";
 
   let {
     settings,
@@ -42,6 +43,7 @@
     run: (password: string) => Promise<void>;
   } | null>(null);
   let showSettings = $state(false);
+  let showChangePassword = $state(false);
 
   const CATEGORIES = ["", "账号密码", "API密钥", "应用密钥", "私钥", "其他"];
 
@@ -301,6 +303,13 @@
     ipc
       .updateSettings(updates)
       .catch((e) => onToast("保存设置失败: " + (typeof e === "string" ? e : String(e)), "err"));
+  }
+
+  // ---------- 修改主密码（与 Go 版 confirmChangePassword 行为一致） ----------
+  async function changePassword(oldPassword: string, newPassword: string) {
+    await ipc.changePassword(oldPassword, newPassword);
+    showChangePassword = false;
+    onToast("密码修改成功", "ok");
   }
 
   async function handleLock() {
@@ -577,5 +586,16 @@
     {settings}
     onSave={saveSettings}
     onClose={() => (showSettings = false)}
+    onChangePassword={() => {
+      showSettings = false;
+      showChangePassword = true;
+    }}
+  />
+{/if}
+
+{#if showChangePassword}
+  <ChangePasswordModal
+    onSubmit={changePassword}
+    onCancel={() => (showChangePassword = false)}
   />
 {/if}
