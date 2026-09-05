@@ -22,3 +22,4 @@ dist/
 
 # Tauri 自动生成的权限 schema
 src-tauri/gen/schemas/
+test-results/
