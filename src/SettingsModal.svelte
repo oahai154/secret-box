@@ -1,28 +1,81 @@
 <script lang="ts">
-  // 设置弹窗（复刻 Go 版 settingsModal）
-  import type { Settings } from "./ipc";
+  // 设置弹窗（复刻 Go 版 settingsModal，v2 增加恢复密钥区，见 ADR-0003）
+  import { ipc, type Settings } from "./ipc";
 
   let {
     settings,
     onSave,
     onClose,
     onChangePassword,
+    onToast,
   }: {
     settings: Settings;
     onSave: (updates: Settings) => void;
     onClose: () => void;
     onChangePassword: () => void;
+    onToast?: (message: string, type?: string) => void;
   } = $props();
 
   let autoLock = $state("120");
   let deleteRequiresPassword = $state(true);
   let deleteVersionRequiresPassword = $state(true);
 
+  // 恢复密钥区
+  let recoveryKey = $state<string | null>(null);
+  let showingRecovery = $state(false);
+  let regenerating = $state(false);
+  let regenPassword = $state("");
+  let regenError = $state("");
+  let copiedRecovery = $state(false);
+
   $effect(() => {
     autoLock = settings.auto_lock_seconds ?? "120";
     deleteRequiresPassword = settings.delete_requires_password !== "false";
     deleteVersionRequiresPassword = settings.delete_version_requires_password !== "false";
   });
+
+  async function viewRecoveryKey() {
+    regenError = "";
+    try {
+      recoveryKey = await ipc.getRecoveryKey();
+      showingRecovery = true;
+    } catch (e) {
+      onToast?.(typeof e === "string" ? e : String(e), "err");
+    }
+  }
+
+  async function copyRecoveryKey() {
+    if (!recoveryKey) return;
+    try {
+      await navigator.clipboard.writeText(recoveryKey);
+      copiedRecovery = true;
+      setTimeout(() => (copiedRecovery = false), 2000);
+    } catch {
+      regenError = "复制失败，请手动抄写";
+    }
+  }
+
+  function startRegenerate() {
+    regenerating = true;
+    regenPassword = "";
+    regenError = "";
+  }
+
+  async function confirmRegenerate() {
+    regenError = "";
+    if (!regenPassword) {
+      regenError = "请输入主密码";
+      return;
+    }
+    try {
+      recoveryKey = await ipc.regenerateRecoveryKey(regenPassword);
+      regenerating = false;
+      regenPassword = "";
+      onToast?.("恢复密钥已重新生成,旧恢复密钥已作废");
+    } catch (e) {
+      regenError = typeof e === "string" ? e : String(e);
+    }
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -100,6 +153,52 @@
     <div class="settings-section">
       <div class="settings-row">
         <div class="settings-label">
+          <div class="settings-label-title">恢复密钥</div>
+          <div class="settings-label-desc">忘记主密码时找回数据的唯一凭据,请妥善保管</div>
+        </div>
+        <div class="settings-control">
+          {#if !showingRecovery}
+            <button id="viewRecoveryBtn" class="btn btn-ghost btn-sm" type="button" onclick={viewRecoveryKey}>
+              查看
+            </button>
+          {:else}
+            <button id="regenerateRecoveryBtn" class="btn btn-ghost btn-sm" type="button" onclick={startRegenerate}>
+              重新生成
+            </button>
+          {/if}
+        </div>
+      </div>
+      {#if showingRecovery}
+        <div class="recovery-view">
+          <div id="recoveryKeyDisplay" class="recovery-code-inline">{recoveryKey ?? "未设置"}</div>
+          <button id="copyRecoveryBtn" class="btn btn-ghost btn-sm" type="button" onclick={copyRecoveryKey}>
+            {copiedRecovery ? "已复制 ✓" : "复制"}
+          </button>
+          {#if regenerating}
+            <div class="regen-row">
+              <input
+                id="regenPasswordInput"
+                type="password"
+                placeholder="输入主密码以确认重生成"
+                autocomplete="off"
+                bind:value={regenPassword}
+              />
+              <button id="regenConfirmBtn" class="btn btn-primary btn-sm" type="button" onclick={confirmRegenerate}>
+                确认重生成
+              </button>
+            </div>
+          {/if}
+          <div class="settings-label-desc">
+            重新生成后旧恢复密钥立即作废,新恢复密钥需要重新保存。
+          </div>
+          <div class="auth-error">{regenError}</div>
+        </div>
+      {/if}
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-row">
+        <div class="settings-label">
           <div class="settings-label-title">修改密码</div>
           <div class="settings-label-desc">更改主密码,所有数据将重新加密</div>
         </div>
@@ -116,3 +215,30 @@
     </div>
   </div>
 </div>
+
+<style>
+  .recovery-view {
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .recovery-code-inline {
+    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    font-size: 0.95rem;
+    letter-spacing: 0.04em;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    user-select: all;
+    word-break: break-all;
+    text-align: center;
+  }
+  .regen-row {
+    display: flex;
+    gap: 8px;
+  }
+  .regen-row input {
+    flex: 1;
+  }
+</style>

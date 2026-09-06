@@ -5,10 +5,12 @@
     hasPassword,
     onUnlocked,
     onSetupCompleted,
+    onForgotPassword,
   }: {
     hasPassword: boolean;
     onUnlocked: () => void;
-    onSetupCompleted: () => void;
+    onSetupCompleted: (recoveryKey: string) => void;
+    onForgotPassword: () => void;
   } = $props();
 
   let password = $state("");
@@ -38,8 +40,8 @@
     busy = true;
     try {
       if (isSetup) {
-        await ipc.setupPassword(password);
-        onSetupCompleted();
+        const result = await ipc.setupPassword(password);
+        onSetupCompleted(result.recovery_key);
       } else {
         await ipc.unlock(password);
         onUnlocked();
@@ -82,5 +84,10 @@
       {#if busy}解锁中…{:else}{isSetup ? "创建并进入" : "解锁"}{/if}
     </button>
     <div id="authError" class="auth-error">{error}</div>
+    {#if !isSetup}
+      <button id="forgotPassword" type="button" class="btn btn-ghost btn-sm" onclick={onForgotPassword}>
+        忘记主密码？
+      </button>
+    {/if}
   </form>
 </div>

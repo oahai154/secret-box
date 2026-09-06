@@ -1,12 +1,21 @@
 <script lang="ts">
   import { ipc, type Settings } from "./ipc";
   import AuthView from "./AuthView.svelte";
+  import RecoveryKeyView from "./RecoveryKeyView.svelte";
+  import RecoverView from "./RecoverView.svelte";
+  import UpgradeWizard from "./UpgradeWizard.svelte";
   import MainView from "./MainView.svelte";
   import Toast from "./Toast.svelte";
 
   let ready = $state(false);
   let hasPassword = $state(true);
   let unlocked = $state(false);
+  // v1 旧库待升级：非空时强制停留在升级向导（见 ADR-0003）
+  let legacy = $state(false);
+  // 首次设置后待确认的恢复密钥：非空时强制停留在确认页（见 ADR-0003）
+  let pendingRecoveryKey = $state("");
+  // 救援模式：从解锁页"忘记主密码？"进入
+  let recovering = $state(false);
   let settings = $state<Settings>({});
   let toastMessage = $state("");
   let toastType = $state("");
@@ -132,6 +141,7 @@
       .getStatus()
       .then((status) => {
         hasPassword = status.has_password;
+        legacy = status.legacy ?? false;
       })
       .catch((e) => {
         hasPassword = false;
@@ -153,21 +163,58 @@
     resetAutoLockTimer();
   }
 
-  async function handleSetupCompleted() {
-    // 首次设置主密码后直接进入主界面
+  async function handleSetupCompleted(recoveryKey: string) {
+    // 首次设置主密码后强制经过恢复密钥确认页，确认完成才进入主界面
+    pendingRecoveryKey = recoveryKey;
+  }
+
+  function handleRecoveryConfirmed() {
+    pendingRecoveryKey = "";
+    handleUnlocked();
+  }
+
+  function handleUpgraded(recoveryKey: string) {
+    // 升级成功后强制经过恢复密钥确认页，确认完成才进入主界面
+    legacy = false;
+    pendingRecoveryKey = recoveryKey;
+  }
+
+  async function handleRecovered() {
+    // 救援成功后后端已置为解锁态（会话密钥为 DEK）
+    recovering = false;
     await handleUnlocked();
   }
 
   // 导入快照/清除痕迹后重置会话回到解锁页（数据的主密码状态可能已改变）
-  function handleSessionReset(hasPasswordNow: boolean) {
+  async function handleSessionReset(hasPasswordNow: boolean) {
     hasPassword = hasPasswordNow;
     unlocked = false;
+    recovering = false;
+    // 导入的快照可能是 v1 格式（或清除后重新设置），重新拉取 legacy 标记
+    try {
+      const status = await ipc.getStatus();
+      hasPassword = status.has_password;
+      legacy = status.legacy ?? false;
+    } catch {
+      legacy = false;
+    }
   }
 </script>
 
 {#if ready}
-  {#if !unlocked}
-    <AuthView {hasPassword} onUnlocked={handleUnlocked} onSetupCompleted={handleSetupCompleted} />
+  {#if pendingRecoveryKey}
+    <RecoveryKeyView recoveryKey={pendingRecoveryKey} onConfirmed={handleRecoveryConfirmed} />
+  {:else if legacy}
+    <UpgradeWizard onUpgraded={handleUpgraded} />
+  {:else if !unlocked && recovering}
+    <RecoverView onRecovered={handleRecovered} onBack={() => (recovering = false)} />
+  {:else if !unlocked}
+    <AuthView
+      {hasPassword}
+      onUnlocked={handleUnlocked}
+      onSetupCompleted={handleSetupCompleted}
+      onForgotPassword={() => (recovering = true)}
+    />
   {:else}
     <MainView {settings} {themeMode} {applyTheme} onLock={lock} onToast={showToast} onSessionReset={handleSessionReset} />
   {/if}

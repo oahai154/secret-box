@@ -1,21 +1,8 @@
-//! 工单 #06 验收：快照导出/导入 + 清除痕迹，跨语言双向互通。
+//! 工单 #06 验收：v1 快照导入 + 清除痕迹。
 //!
-//! 用法（配合 Go 测试工具 golden_fixture_test.go 中的 TestSnapshot*Tool）：
-//!
-//! 方向 A（Rust 导出 → Go 导入比对）：
-//!   SECRETBOX_SNAPSHOT_OUT=<目录> cargo test -p secretbox-core --test snapshot -- 快照导出
-//!   SECRETBOX_SNAPSHOT_IMPORT_FILE=<目录>/rust-export.secretbox \
-//!   SECRETBOX_SNAPSHOT_IMPORT_PASSWORD=migration-pass-#06 \
-//!   SECRETBOX_SNAPSHOT_IMPORT_DB=<目录>/go-imported.db \
-//!   SECRETBOX_SNAPSHOT_IMPORT_OUT=<目录>/go-import-dump.json \
-//!   SECRETBOX_SNAPSHOT_IMPORT_EXPECT=<目录>/rust-export-expected.json \
-//!   SECRETBOX_SNAPSHOT_DB_PASSWORD=golden-test-password \
-//!   go test -run TestSnapshotImportTool
-//!
-//! 方向 B（Go 导出 → Rust 导入比对）：
-//!   SECRETBOX_SNAPSHOT_EXPORT_DB=<目录>/src.db SECRETBOX_SNAPSHOT_EXPORT_PASSWORD=migration-pass-#06 \
-//!   SECRETBOX_SNAPSHOT_EXPORT_OUT=<目录>/go-export.secretbox go test -run TestSnapshotExportTool
-//!   SECRETBOX_SNAPSHOT_IN=<目录>/go-export.secretbox cargo test -p secretbox-core --test snapshot -- 快照导入
+//! v2 起快照导出/导入携带双份 DEK 包装（ADR-0003），v2 语义的快照回环测试
+//! 在 dek.rs（含主密码/恢复密钥双凭据导入）；本文件保留 v1 快照的只读导入
+//! 路径回归（fixture 为 Go 版生成的旧格式快照能力等价物）。
 
 use secretbox_core::{build_file, parse_file, Db, Snapshot};
 use serde_json::json;
@@ -58,73 +45,6 @@ fn 清除痕迹后数据库文件全部不存在() {
     assert!(!db_path.exists(), "主数据库文件必须被删除");
     assert!(!std::path::Path::new(&wal).exists(), "WAL 文件必须被删除");
     assert!(!std::path::Path::new(&shm).exists(), "SHM 文件必须被删除");
-}
-
-/// 方向 A：Rust 导出迁移文件 + 期望明文，供 Go 导入比对（SECRETBOX_SNAPSHOT_OUT 门控）。
-#[test]
-fn 快照导出供_go_导入() {
-    let out_dir = match std::env::var("SECRETBOX_SNAPSHOT_OUT") {
-        Ok(dir) => dir,
-        Err(_) => return,
-    };
-    let (db, key, _tmp) = setup();
-
-    let snap = db.get_snapshot().expect("读取快照");
-    let content = build_file(&snap, PASSPHRASE).expect("构建迁移文件");
-    std::fs::write(
-        std::path::Path::new(&out_dir).join("rust-export.secretbox"),
-        &content,
-    )
-    .expect("写出迁移文件");
-
-    // 期望明文（与 Go dump 结构一致）
-    let expected = json!({ "salt": db.salt_b64(), "items": dump_plaintext(&db, &key) });
-    std::fs::write(
-        std::path::Path::new(&out_dir).join("rust-export-expected.json"),
-        serde_json::to_string_pretty(&expected).unwrap(),
-    )
-    .expect("写出期望文件");
-}
-
-/// 方向 B：导入 Go 导出的迁移文件并比对黄金样本明文（SECRETBOX_SNAPSHOT_IN 门控）。
-#[test]
-fn 快照导入_go_导出的文件() {
-    let in_path = match std::env::var("SECRETBOX_SNAPSHOT_IN") {
-        Ok(dir) => dir,
-        Err(_) => return,
-    };
-    let content = std::fs::read_to_string(&in_path).expect("读取 Go 导出的迁移文件");
-    let snap = parse_file(&content, PASSPHRASE).expect("解析迁移文件");
-
-    let mut db = open_fresh();
-    db.restore_from_snapshot(&snap).expect("还原快照");
-    let key = db.unlock("golden-test-password").expect("原主密码可解锁");
-
-    // 与黄金样本期望逐字段比对（还原后的 id 从 1 重新编号，与 expected.json 一致）
-    let expected_path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/expected.json");
-    let expected: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(expected_path).unwrap()).unwrap();
-    let expected_items = expected["items"].as_array().expect("expected items");
-
-    let actual = dump_plaintext(&db, &key);
-    assert_eq!(actual.len(), expected_items.len(), "条目数量不一致");
-    for (act, exp) in actual.iter().zip(expected_items.iter()) {
-        assert_eq!(act["id"], exp["id"], "id 不一致");
-        assert_eq!(act["title"], exp["title"], "标题不一致");
-        assert_eq!(act["note"], exp["note"], "备注不一致");
-        assert_eq!(act["value"], exp["value"], "内容不一致");
-        assert_eq!(act["created_at"], exp["created_at"], "创建时间不一致");
-        assert_eq!(act["updated_at"], exp["updated_at"], "更新时间不一致");
-        let act_versions = act["versions"].as_array().unwrap();
-        let exp_versions = exp["versions"].as_array().unwrap();
-        assert_eq!(act_versions.len(), exp_versions.len(), "版本数量不一致");
-        for (av, ev) in act_versions.iter().zip(exp_versions.iter()) {
-            assert_eq!(av["version"], ev["version"], "版本号不一致");
-            assert_eq!(av["snapshot"], ev["snapshot"], "版本快照不一致");
-            assert_eq!(av["created_at"], ev["created_at"], "版本时间不一致");
-        }
-    }
-    assert_eq!(db.salt_b64(), Some(expected["salt"].as_str().unwrap().to_string()));
 }
 
 /// 复制 fixture 并解锁，返回 (数据库, 密钥, 数据库路径)。

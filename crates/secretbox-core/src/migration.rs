@@ -13,14 +13,28 @@ use serde::{Deserialize, Serialize};
 use crate::crypto;
 use crate::db::SecretboxError;
 
-/// 一次导出的完整数据快照（条目密文 + 主密码盐值），结构与 Go 版 Snapshot 一致。
+/// 一次导出的完整数据快照（条目密文 + KEK 盐值 + DEK 包装），字段命名与
+/// Go 版 Snapshot 一致；wrapped_dek 及恢复侧三字段为 v2 扩展（v1 旧快照
+/// 反序列化为空，导入后仍走只读解锁路径）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Snapshot {
     #[serde(rename = "has_password")]
     pub has_password: bool,
-    /// 主密码派生盐值（base64），导入后写回 meta 表。
+    /// KEK 盐值（base64），导入后写回 meta 表。
     #[serde(rename = "salt")]
     pub salt_b64: String,
+    /// DEK 的主密码侧包装（base64），v2 格式携带；v1 旧快照为空字符串。
+    #[serde(rename = "wrapped_dek", default)]
+    pub wrapped_dek_b64: String,
+    /// 恢复密钥 KEK 盐值（base64），v2 且已设置恢复密钥时携带。
+    #[serde(rename = "recovery_salt", default)]
+    pub recovery_salt_b64: String,
+    /// DEK 的恢复密钥侧包装（base64），v2 且已设置恢复密钥时携带。
+    #[serde(rename = "wrapped_dek_recovery", default)]
+    pub wrapped_dek_recovery_b64: String,
+    /// DEK 加密的恢复密钥明文（base64），v2 且已设置恢复密钥时携带。
+    #[serde(rename = "recovery_key_enc", default)]
+    pub recovery_key_enc_b64: String,
     #[serde(default = "Vec::new")]
     pub items: Vec<SnapshotItem>,
 }
@@ -107,6 +121,10 @@ mod tests {
         let snap = Snapshot {
             has_password: true,
             salt_b64: "abc".to_string(),
+            wrapped_dek_b64: String::new(),
+            recovery_salt_b64: String::new(),
+            wrapped_dek_recovery_b64: String::new(),
+            recovery_key_enc_b64: String::new(),
             items: vec![SnapshotItem {
                 title: "t".into(),
                 category: "".into(),

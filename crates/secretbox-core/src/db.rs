@@ -1,9 +1,14 @@
 //! 数据层：SQLite 打开/初始化 + 条目与历史版本的读取。
 //!
-//! 与 Go 版 db.go 对齐：
-//! - 打开时启用 WAL 与外键；
-//! - 表结构：meta / secret_items / secret_versions / settings；
-//! - 盐值存于 meta 表 key='salt'，base64 编码。
+//! v2 存储格式（见 ADR-0003）：
+//! - 条目与历史版本由随机 DEK（数据加密密钥）加解密；
+//! - meta 表 key='salt' 存 KEK 盐值（base64），key='wrapped_dek' 存
+//!   主密码派生 KEK 包装后的 DEK（base64）；
+//! - 解锁 = 用主密码解开 DEK 包装，GCM 标签即密码校验；
+//! - 无 wrapped_dek 的旧版（v1）数据库为只读导入源：解锁退回
+//!   主密码直接派生路径，仅供升级向导与旧快照导入读取。
+//!
+//! WAL 与外键、表结构与 Go 版一致。
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
@@ -11,8 +16,20 @@ use chrono::{Local, SecondsFormat};
 use rusqlite::{Connection, Transaction};
 use serde::{Deserialize, Serialize};
 
-use crate::crypto::{self, CryptoError};
+use crate::crypto::{self, CryptoError, KEY_LEN};
 use crate::migration::{Snapshot, SnapshotItem, SnapshotVersion};
+use crate::recovery::{format_grouped, normalize_recovery_key};
+
+/// meta 表中 KEK 盐值的键。
+const META_SALT: &str = "salt";
+/// meta 表中主密码 KEK 包装后的 DEK（base64）的键。
+const META_WRAPPED_DEK: &str = "wrapped_dek";
+/// meta 表中恢复密钥 KEK 盐值的键。
+const META_RECOVERY_SALT: &str = "recovery_salt";
+/// meta 表中恢复密钥 KEK 包装后的 DEK（base64）的键。
+const META_WRAPPED_DEK_RECOVERY: &str = "wrapped_dek_recovery";
+/// meta 表中 DEK 加密的恢复密钥明文（base64）的键，供解锁后查看。
+const META_RECOVERY_KEY_ENC: &str = "recovery_key_enc";
 
 /// 当前时间，RFC3339 秒精度，与 Go 版 nowISO() 格式一致。
 fn now_iso() -> String {
@@ -41,6 +58,12 @@ pub enum SecretboxError {
     SnapshotSerializeFailed,
     #[error("删除数据库文件失败: {0}")]
     RemoveDbFailed(String),
+    #[error("旧版数据库为只读导入源，请先完成升级")]
+    LegacyReadOnly,
+    #[error("恢复密钥未设置")]
+    RecoveryNotSet,
+    #[error("恢复密钥不正确")]
+    RecoveryWrong,
 }
 
 /// 条目（读列表时不含明文；用 [`Db::get_item`] 单独读取时填充 `value`）。
@@ -194,16 +217,126 @@ impl Db {
         self.salt.is_some()
     }
 
-    /// 首次设置主密码：生成随机盐、写 meta 表并更新内存盐值，返回派生密钥。
-    pub fn setup_master_password(&mut self, password: &str) -> Result<Vec<u8>, SecretboxError> {
-        let (key, salt) = crypto::derive_key(password, &[])?;
-        self.conn.execute(
-            "INSERT INTO meta(key,value) VALUES('salt',?1)
+    /// 是否为 v2 格式（存在 DEK 包装行）。
+    pub fn is_v2(&self) -> bool {
+        self.read_wrapped_dek().ok().flatten().is_some()
+    }
+
+    /// 读取 meta 表中包装的 DEK（base64 原文；不存在返回 None）。
+    fn read_wrapped_dek(&self) -> Result<Option<String>, SecretboxError> {
+        match self.conn.query_row(
+            "SELECT value FROM meta WHERE key='wrapped_dek'",
+            [],
+            |row| row.get::<_, String>(0),
+        ) {
+            Ok(encoded) => Ok(Some(encoded)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(err) => Err(err.into()),
+        }
+    }
+
+    fn write_meta(&self, tx: &Transaction, key: &str, value: &str) -> Result<(), SecretboxError> {
+        tx.execute(
+            "INSERT INTO meta(key,value) VALUES(?1,?2)
              ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            [&BASE64.encode(&salt)],
+            [key, value],
         )?;
+        Ok(())
+    }
+
+    /// 首次设置主密码：生成随机 DEK 与盐值，DEK 用主密码派生的 KEK 包装后
+    /// 连同盐值写入 meta 表，返回 DEK（只应存于内存，作为会话密钥）。
+    /// 已设置主密码的库（无论 v1/v2）拒绝再次设置——存量 v1 库只能走升级
+    /// 向导迁移，不存在任何覆盖式写入口（见 ADR-0003）。
+    pub fn setup_master_password(&mut self, password: &str) -> Result<Vec<u8>, SecretboxError> {
+        if self.has_master_password() {
+            return Err(SecretboxError::LegacyReadOnly);
+        }
+        let dek = crypto::random_bytes(KEY_LEN)?;
+        let (kek, salt) = crypto::derive_key(password, &[])?;
+        let wrapped = crypto::encrypt_bytes(&kek, &dek)?;
+        let tx = self.conn.unchecked_transaction()?;
+        self.write_meta(&tx, META_SALT, &BASE64.encode(&salt))?;
+        self.write_meta(&tx, META_WRAPPED_DEK, &wrapped)?;
+        tx.commit()?;
         self.salt = Some(salt);
-        Ok(key)
+        Ok(dek)
+    }
+
+    /// 是否已设置恢复密钥（依据恢复侧包装是否已写）。
+    pub fn has_recovery_key(&self) -> bool {
+        self.read_meta(META_WRAPPED_DEK_RECOVERY)
+            .map(|v| v.is_some())
+            .unwrap_or(false)
+    }
+
+    /// 设置（或重置）恢复密钥：归一化后派生恢复侧 KEK（独立随机盐），
+    /// 重新包装 DEK 写入 meta；同时把规范分组的明文码用 DEK 加密存一份
+    /// （解锁后可查看，锁定态无 DEK 不可见）。旧恢复密钥随之作废。
+    /// `dek` 为当前会话密钥；v1 旧库没有 DEK，拒绝设置。
+    pub fn set_recovery_key(
+        &mut self,
+        recovery_key: &str,
+        dek: &[u8],
+    ) -> Result<(), SecretboxError> {
+        if self.read_wrapped_dek()?.is_none() {
+            return Err(SecretboxError::LegacyReadOnly);
+        }
+        let normalized = normalize_recovery_key(recovery_key);
+        if normalized.len() < 16 {
+            return Err(SecretboxError::Crypto(CryptoError::DeriveFailed));
+        }
+        let canonical = format_grouped(&normalized);
+        let (kek, salt) = crypto::derive_key(&normalized, &[])?;
+        let wrapped = crypto::encrypt_bytes(&kek, dek)?;
+        let code_enc = crypto::encrypt(dek, &canonical)?;
+        let tx = self.conn.unchecked_transaction()?;
+        self.write_meta(&tx, META_RECOVERY_SALT, &BASE64.encode(&salt))?;
+        self.write_meta(&tx, META_WRAPPED_DEK_RECOVERY, &wrapped)?;
+        self.write_meta(&tx, META_RECOVERY_KEY_ENC, &code_enc)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// 查看（解锁态）当前恢复密钥，返回与生成/重置时一致的规范分组码。
+    /// 锁定状态下调用方没有 DEK，无法获取——这是"锁定不暴露"的机制保证。
+    pub fn get_recovery_key(&self, dek: &[u8]) -> Result<Option<String>, SecretboxError> {
+        match self.read_meta(META_RECOVERY_KEY_ENC)? {
+            Some(encoded) => crypto::decrypt(dek, &encoded).map(Some).map_err(|_| {
+                SecretboxError::Crypto(CryptoError::DecryptFailed)
+            }),
+            None => Ok(None),
+        }
+    }
+
+    /// 用恢复密钥解开 DEK 包装（忘记主密码的救援路径，见 ADR-0003）。
+    /// 成功返回 DEK，与主密码解锁等价。
+    pub fn unlock_with_recovery_key(&self, recovery_key: &str) -> Result<Vec<u8>, SecretboxError> {
+        let wrapped = self
+            .read_meta(META_WRAPPED_DEK_RECOVERY)?
+            .ok_or(SecretboxError::RecoveryNotSet)?;
+        let salt_b64 = self
+            .read_meta(META_RECOVERY_SALT)?
+            .ok_or(SecretboxError::RecoveryNotSet)?;
+        let salt = BASE64
+            .decode(&salt_b64)
+            .map_err(|_| SecretboxError::Base64DecodeFailed)?;
+        let normalized = normalize_recovery_key(recovery_key);
+        let (kek, _) = crypto::derive_key(&normalized, &salt)?;
+        crypto::decrypt_bytes(&kek, &wrapped).map_err(|_| SecretboxError::RecoveryWrong)
+    }
+
+    /// 读取 meta 表某键的原始值。
+    fn read_meta(&self, key: &str) -> Result<Option<String>, SecretboxError> {
+        match self.conn.query_row(
+            "SELECT value FROM meta WHERE key=?1",
+            [key],
+            |row| row.get::<_, String>(0),
+        ) {
+            Ok(value) => Ok(Some(value)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(err) => Err(err.into()),
+        }
     }
 
     /// 读取设置项，不存在返回默认值（与 Go 版 GetSetting 一致）。
@@ -240,9 +373,19 @@ impl Db {
         Ok(rows)
     }
 
-    /// 用主密码解锁：派生密钥并用首条密文验证（无数据时跳过校验，仍视为成功）。
-    /// 成功返回派生密钥（只应存于内存）。
+    /// 用主密码解锁：解开 DEK 包装（GCM 标签即密码校验），成功返回 DEK
+    /// （只应存于内存）。无包装行的 v1 旧库退回主密码直接派生路径
+    /// （只读导入源，供升级向导与旧快照导入读取）。
     pub fn unlock(&self, password: &str) -> Result<Vec<u8>, SecretboxError> {
+        if let Some(wrapped) = self.read_wrapped_dek()? {
+            let salt = self
+                .salt
+                .as_ref()
+                .ok_or(SecretboxError::Crypto(CryptoError::DeriveFailed))?;
+            let (kek, _) = crypto::derive_key(password, salt)?;
+            return Ok(crypto::decrypt_bytes(&kek, &wrapped)?);
+        }
+
         let salt = self
             .salt
             .as_ref()
@@ -489,65 +632,26 @@ impl Db {
         Ok(())
     }
 
-    /// 修改主密码：全部条目与历史版本用新密码重新加密，更新 meta 盐值
-    /// （与 Go 版 ChangePassword 一致：新随机盐 + 事务内重加密 + 更新 meta）。
-    /// `old_key` 为旧密码派生的当前会话密钥；任一密文解密失败即整体回滚。
-    /// 返回新派生密钥，调用方应更新会话密钥。
+    /// 修改主密码：生成新盐值与新 KEK，仅重新包装 DEK，条目密文原样不动
+    /// （v2 起"改密"不再触发全库重加密）。`dek` 为当前会话密钥（解锁时
+    /// 解包装得到）；v1 旧库没有 DEK，拒绝修改（升级向导负责迁移）。
+    /// 返回会话密钥（即原 DEK，保持不变）。
     pub fn change_password(
         &mut self,
-        old_key: &[u8],
+        dek: &[u8],
         new_password: &str,
     ) -> Result<Vec<u8>, SecretboxError> {
-        // 先读出全部密文（条目 + 历史版本），避免事务内遍历与更新互相干扰
-        let item_rows: Vec<(i64, String)> = {
-            let mut stmt = self
-                .conn
-                .prepare("SELECT id, encrypted_value FROM secret_items")?;
-            let rows = stmt
-                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-                .collect::<Result<Vec<_>, _>>()?;
-            rows
-        };
-        let version_rows: Vec<(i64, String)> = {
-            let mut stmt = self
-                .conn
-                .prepare("SELECT id, encrypted_snapshot FROM secret_versions")?;
-            let rows = stmt
-                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-                .collect::<Result<Vec<_>, _>>()?;
-            rows
-        };
-
-        // 用新随机盐派生新密钥
-        let (new_key, new_salt) = crypto::derive_key(new_password, &[])?;
-
+        if self.read_wrapped_dek()?.is_none() {
+            return Err(SecretboxError::LegacyReadOnly);
+        }
+        let (new_kek, new_salt) = crypto::derive_key(new_password, &[])?;
+        let wrapped = crypto::encrypt_bytes(&new_kek, dek)?;
         let tx = self.conn.unchecked_transaction()?;
-        for (id, enc) in &item_rows {
-            let plain = crypto::decrypt(old_key, enc)?;
-            let re_encrypted = crypto::encrypt(&new_key, &plain)?;
-            tx.execute(
-                "UPDATE secret_items SET encrypted_value = ?1 WHERE id = ?2",
-                rusqlite::params![re_encrypted, id],
-            )?;
-        }
-        for (id, enc) in &version_rows {
-            let plain = crypto::decrypt(old_key, enc)?;
-            let re_encrypted = crypto::encrypt(&new_key, &plain)?;
-            tx.execute(
-                "UPDATE secret_versions SET encrypted_snapshot = ?1 WHERE id = ?2",
-                rusqlite::params![re_encrypted, id],
-            )?;
-        }
-        // 更新盐值
-        tx.execute(
-            "INSERT INTO meta(key,value) VALUES('salt',?1)
-             ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            [&BASE64.encode(&new_salt)],
-        )?;
+        self.write_meta(&tx, META_SALT, &BASE64.encode(&new_salt))?;
+        self.write_meta(&tx, META_WRAPPED_DEK, &wrapped)?;
         tx.commit()?;
-
         self.salt = Some(new_salt);
-        Ok(new_key)
+        Ok(dek.to_vec())
     }
 
     /// 恢复历史版本：把指定版本的快照内容作为新修改写入条目（与 Go 版 handleRestore 一致，
@@ -565,19 +669,38 @@ impl Db {
 
     // ---------- 快照导出 / 导入 / 清除痕迹（与 Go 版 GetSnapshot/RestoreFromSnapshot/Wipe 对齐） ----------
 
-    /// 读取当前数据库的完整数据快照（条目密文 + 盐值，不解密）。
+    /// 读取当前数据库的完整数据快照（条目密文 + 全部密钥包装材料，不解密）。
+    /// v2 携带主密码侧与恢复密钥侧两份包装——备份不随主密码遗忘而作废。
     pub fn get_snapshot(&self) -> Result<Snapshot, SecretboxError> {
+        // 随快照透传的 meta 键：主密码侧 + 恢复密钥侧包装材料
+        const META_KEYS: [&str; 5] = [
+            META_SALT,
+            META_WRAPPED_DEK,
+            META_RECOVERY_SALT,
+            META_WRAPPED_DEK_RECOVERY,
+            META_RECOVERY_KEY_ENC,
+        ];
         let mut snap = Snapshot {
             has_password: self.has_master_password(),
-            // 直接从库读取盐值，确保导出包含主密码盐
-            salt_b64: self
-                .conn
-                .query_row("SELECT value FROM meta WHERE key='salt'", [], |row| {
-                    row.get::<_, String>(0)
-                })
-                .unwrap_or_default(),
+            salt_b64: String::new(),
+            wrapped_dek_b64: String::new(),
+            recovery_salt_b64: String::new(),
+            wrapped_dek_recovery_b64: String::new(),
+            recovery_key_enc_b64: String::new(),
             items: Vec::new(),
         };
+        for key in META_KEYS {
+            if let Some(value) = self.read_meta(key)? {
+                match key {
+                    META_SALT => snap.salt_b64 = value,
+                    META_WRAPPED_DEK => snap.wrapped_dek_b64 = value,
+                    META_RECOVERY_SALT => snap.recovery_salt_b64 = value,
+                    META_WRAPPED_DEK_RECOVERY => snap.wrapped_dek_recovery_b64 = value,
+                    META_RECOVERY_KEY_ENC => snap.recovery_key_enc_b64 = value,
+                    _ => unreachable!("META_KEYS 与字段映射同步维护"),
+                }
+            }
+        }
         let mut stmt = self.conn.prepare(
             "SELECT id, title, category, note, encrypted_value, created_at, updated_at
              FROM secret_items ORDER BY id",
@@ -621,6 +744,30 @@ impl Db {
             tx.execute(
                 "INSERT INTO meta(key,value) VALUES('salt',?1)",
                 [&snap.salt_b64],
+            )?;
+        }
+        if !snap.wrapped_dek_b64.is_empty() {
+            tx.execute(
+                "INSERT INTO meta(key,value) VALUES('wrapped_dek',?1)",
+                [&snap.wrapped_dek_b64],
+            )?;
+        }
+        if !snap.recovery_salt_b64.is_empty() {
+            tx.execute(
+                "INSERT INTO meta(key,value) VALUES('recovery_salt',?1)",
+                [&snap.recovery_salt_b64],
+            )?;
+        }
+        if !snap.wrapped_dek_recovery_b64.is_empty() {
+            tx.execute(
+                "INSERT INTO meta(key,value) VALUES('wrapped_dek_recovery',?1)",
+                [&snap.wrapped_dek_recovery_b64],
+            )?;
+        }
+        if !snap.recovery_key_enc_b64.is_empty() {
+            tx.execute(
+                "INSERT INTO meta(key,value) VALUES('recovery_key_enc',?1)",
+                [&snap.recovery_key_enc_b64],
             )?;
         }
         for it in &snap.items {

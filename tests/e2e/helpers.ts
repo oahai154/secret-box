@@ -53,14 +53,22 @@ export function injectMockIpc(page: Page): void {
       let nextId = Math.max(...fix.items.map((i) => i.id)) + 1;
       const store = new Map(fix.items.map((it) => [it.id, JSON.parse(JSON.stringify(it))]));
       const nowIso = () => new Date().toISOString();
+      let mockRecoveryKey = "K7MQ-4XTA-9PLW-2RDN-6VHC-3XBT-8YQE-5ZJS";
       return {
-        getStatus: async () => ({ has_password: true, unlocked: false }),
+        getStatus: async () => ({ has_password: true, unlocked: false, legacy: false }),
+        upgradeV1: async (password) => {
+          // 与后端一致：主密码不变，数据迁移后返回新生成的恢复密钥
+          if (password !== fix.password) throw "主密码不正确";
+          return { ok: true, recovery_key: "K7MQ-4XTA-9PLW-2RDN-6VHC-3XBT-8YQE-5ZJS" };
+        },
         unlock: async (password) => {
           if (password !== fix.password) throw "主密码错误";
         },
         lock: async () => {},
         setupPassword: async (password) => {
           if (!password || password.trim().length < 4) throw "主密码至少 4 个字符";
+          // 与后端 setup_password 一致：同时返回生成的恢复密钥（见 ADR-0003）
+          return { ok: true, recovery_key: "K7MQ-4XTA-9PLW-2RDN-6VHC-3XBT-8YQE-5ZJS" };
         },
         verifyPassword: async (password) => {
           if (password !== fix.password) throw "密码不正确";
@@ -69,6 +77,29 @@ export function injectMockIpc(page: Page): void {
           if (oldPassword !== fix.password) throw "解密失败(主密码可能不正确)";
           if (!newPassword || newPassword.length < 4) throw "新密码至少 4 位";
           fix.password = newPassword;
+        },
+        recoverPassword: async (recoveryKey, newPassword) => {
+          // 与后端一致：归一化后比对恢复密钥；成功后新主密码生效
+          const normalized = (recoveryKey || "").toUpperCase().replace(/[^0-9A-Z]/g, "");
+          if (normalized !== mockRecoveryKey.replace(/-/g, "")) throw "恢复密钥不正确";
+          if (!newPassword || newPassword.length < 4) throw "新密码至少 4 位";
+          fix.password = newPassword;
+        },
+        getRecoveryKey: async () => {
+          // 与后端一致：仅解锁后可见；mock 中调用即处于解锁态
+          return mockRecoveryKey;
+        },
+        regenerateRecoveryKey: async (masterPassword) => {
+          if (masterPassword !== fix.password) throw "解密失败(主密码可能不正确)";
+          // 生成 32 字符的 8 组新码
+          const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+          let code = "";
+          for (let i = 0; i < 32; i++) {
+            code += alphabet[Math.floor(Math.random() * alphabet.length)];
+          }
+          mockRecoveryKey = code.replace(/(.{4})(?=.)/g, "$1-");
+          fix.recoveryKey = mockRecoveryKey;
+          return mockRecoveryKey;
         },
         listItems: async () =>
           [...store.values()].map((it) => ({

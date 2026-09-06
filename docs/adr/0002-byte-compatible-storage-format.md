@@ -1,5 +1,7 @@
 # 存储格式与 Go 版逐字节兼容
 
+> **状态：已被 [0003-recovery-key-and-v2-format.md](./0003-recovery-key-and-v2-format.md) 取代**——恢复密钥机制要求条目加密密钥不再直接来自主密码，v2 格式自此生效，旧格式转为导入源。以下内容保留作历史记录。
+
 Rust 版直接读写现有 `secretbox.db`：scrypt 密钥派生参数、AES-256-GCM 的 nonce/密文布局、SQLite 表结构全部保持与 Go 版一致；加密导出的快照文件也跨版本互通。不引入新格式。
 
 ## Considered Options

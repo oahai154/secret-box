@@ -1,7 +1,8 @@
-//! 跨语言黄金样本测试：对 Go 版生成的 fixture 断言逐字节兼容（见 ADR-0002）。
+//! v1 黄金样本测试：scrypt 派生向量 + v1 旧库只读读路径（见 ADR-0003）。
 //!
-//! fixture 由 Go 版自身代码生成（见仓库根目录 golden_fixture_test.go），
-//! 使用公开测试密码，不含真实数据。
+//! fixture 由原 Go 版自身代码生成，使用公开测试密码，不含真实数据。
+//! v2 起 Go 版兼容已废止（ADR-0003），此文件保留两项职责：
+//! ① KDF/密文布局向量锁定加密原语不回归；② v1 只读解锁路径的读语义回归。
 
 use std::path::PathBuf;
 
@@ -203,28 +204,4 @@ fn hex_decode(text: &str) -> Vec<u8> {
         .step_by(2)
         .map(|i| u8::from_str_radix(&text[i..i + 2], 16).expect("十六进制有效"))
         .collect()
-}
-
-#[test]
-fn rust_加密输出写盘供_go_读回差分() {
-    // 差分断言的另一方向：Rust 加密的密文由 Go 版读回解密。
-    // 运行方式：SECRETBOX_RUST_VECTORS_OUT=<路径> cargo test -p secretbox-core
-    let out_path = match std::env::var("SECRETBOX_RUST_VECTORS_OUT") {
-        Ok(path) => path,
-        Err(_) => return, // 普通测试不写盘
-    };
-    let expected = load_expected();
-    let salt = BASE64.decode(&expected.salt).expect("盐值 base64 有效");
-    let (key, _) = derive_key(&expected.password, &salt).expect("派生密钥应成功");
-
-    let mut vectors = Vec::new();
-    for plain in ["", "hello", "Rust 写入的中文明文 🦀", "line1\nline2"] {
-        vectors.push(serde_json::json!({
-            "plaintext": plain,
-            "cipher": secretbox_core::encrypt(&key, plain).expect("加密应成功"),
-        }));
-    }
-    let payload = serde_json::to_string_pretty(&serde_json::json!({ "vectors": vectors }))
-        .expect("序列化应成功");
-    std::fs::write(&out_path, payload).expect("写出加密向量");
 }

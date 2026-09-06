@@ -26,6 +26,14 @@ export interface Version {
 export interface Status {
   has_password: boolean;
   unlocked: boolean;
+  /** v1 旧库待升级标记（见 ADR-0003），为 true 时前端强制进入升级向导。 */
+  legacy?: boolean;
+}
+
+// 首次设置主密码的结果：同时返回生成的恢复密钥（见 ADR-0003）
+export interface SetupResult {
+  ok: boolean;
+  recovery_key: string;
 }
 
 export type Settings = Record<string, string>;
@@ -47,9 +55,17 @@ export interface SecretboxIpc {
   getStatus(): Promise<Status>;
   unlock(password: string): Promise<void>;
   lock(): Promise<void>;
-  setupPassword(password: string): Promise<void>;
+  setupPassword(password: string): Promise<SetupResult>;
+  /** v1 旧库升级：验证主密码后建新 v2 库并迁移数据，返回生成的恢复密钥。 */
+  upgradeV1(password: string): Promise<SetupResult>;
   verifyPassword(password: string): Promise<void>;
   changePassword(oldPassword: string, newPassword: string): Promise<void>;
+  /** 忘记主密码的救援：用恢复密钥重设主密码并直接进入解锁态（见 ADR-0003）。 */
+  recoverPassword(recoveryKey: string, newPassword: string): Promise<void>;
+  /** 查看当前恢复密钥（仅解锁后），未设置返回 null。 */
+  getRecoveryKey(): Promise<string | null>;
+  /** 重新生成恢复密钥（需验证主密码），返回新的规范分组码，旧码立即作废。 */
+  regenerateRecoveryKey(masterPassword: string): Promise<string>;
   listItems(): Promise<Item[]>;
   getItem(id: number): Promise<Item>;
   createItem(input: ItemInput): Promise<number>;
@@ -87,13 +103,29 @@ function createTauriIpc(): SecretboxIpc {
       await invoke("lock");
     },
     setupPassword: async (password: string) => {
-      await invoke("setup_password", { password });
+      return invoke<SetupResult>("setup_password", { password });
+    },
+    upgradeV1: async (password: string) => {
+      return invoke<SetupResult>("upgrade_v1", { password });
     },
     verifyPassword: async (password: string) => {
       await invoke("verify_password", { password });
     },
     changePassword: async (oldPassword: string, newPassword: string) => {
       await invoke("change_password", { oldPassword, newPassword });
+    },
+    recoverPassword: async (recoveryKey: string, newPassword: string) => {
+      await invoke("recover_password", { recoveryKey, newPassword });
+    },
+    getRecoveryKey: async () => {
+      const result = await invoke<{ recovery_key: string | null }>("get_recovery_key");
+      return result.recovery_key;
+    },
+    regenerateRecoveryKey: async (masterPassword: string) => {
+      const result = await invoke<{ recovery_key: string }>("regenerate_recovery_key", {
+        masterPassword,
+      });
+      return result.recovery_key;
     },
     listItems: () => invoke<Item[]>("list_items"),
     getItem: (id: number) => invoke<Item>("get_item", { id }),

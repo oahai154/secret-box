@@ -247,6 +247,7 @@
           it.value = it.value ?? "";
           it.note = it.note ?? "";
           detail = it;
+          valueVisible = true;
           viewingVersion = null;
           items = await ipc.listItems();
           versions = await ipc.listVersions(currentId!);
@@ -294,20 +295,24 @@
     valueVisible = !valueVisible;
   }
 
-  // 文本框按内容自动调整高度（配合 CSS 的 min/max-height）
-  function autoResize(node: HTMLTextAreaElement) {
-    const resize = () => {
-      node.style.height = "auto";
-      node.style.height = node.scrollHeight + "px";
-    };
-    node.addEventListener("input", resize);
-    resize();
-    return {
-      destroy() {
-        node.removeEventListener("input", resize);
-      },
-    };
+  // 文本框按内容自动调整高度（配合 CSS 的 min-height）。
+  // 用 $effect 而非 use: action：$effect 在模板渲染效果（value 赋值、绑定）之后运行，
+  // 量高时 DOM 已是最新；action 的 update 与属性赋值同批无序，会量到旧值导致塌陷。
+  function resizeTextarea(node: HTMLTextAreaElement) {
+    node.style.height = "auto";
+    node.style.height = node.scrollHeight + "px";
   }
+
+  let valueEl = $state<HTMLTextAreaElement>();
+  let noteEl = $state<HTMLTextAreaElement>();
+
+  $effect(() => {
+    valueVisible;
+    void (detail?.value ?? "");
+    void (detail?.note ?? "");
+    if (valueEl) resizeTextarea(valueEl);
+    if (noteEl) resizeTextarea(noteEl);
+  });
 
   let titleInput: HTMLInputElement | undefined = $state();
 
@@ -601,11 +606,15 @@
                 </div>
                 <textarea
                   id="itemValue"
+                  bind:this={valueEl}
                   class={valueVisible ? "value-visible" : "value-hidden"}
                   placeholder="点击「点击显示」查看保密内容…"
                   spellcheck="false"
-                  use:autoResize
-                  bind:value={detail.value}
+                  tabindex={valueVisible ? 0 : -1}
+                  value={valueVisible ? (detail?.value ?? "") : ""}
+                  oninput={(e) => {
+                    if (detail) detail.value = e.currentTarget.value;
+                  }}
                 ></textarea>
               </div>
             </div>
@@ -615,10 +624,10 @@
                 <label class="field-label" for="itemNote">备注</label>
                 <textarea
                   id="itemNote"
+                  bind:this={noteEl}
                   class="note-textarea"
                   placeholder="添加备注信息(可选)…"
                   spellcheck="false"
-                  use:autoResize
                   bind:value={detail.note}
                 ></textarea>
               </div>
@@ -701,6 +710,7 @@
       showSettings = false;
       showChangePassword = true;
     }}
+    onToast={onToast}
   />
 {/if}
 
