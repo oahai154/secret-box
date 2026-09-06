@@ -23,3 +23,6 @@ dist/
 # Tauri 自动生成的权限 schema
 src-tauri/gen/schemas/
 test-results/
+
+# 会话工具本地目录
+.zcode/

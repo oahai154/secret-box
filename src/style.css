@@ -489,10 +489,8 @@ button { font-family: inherit; }
   margin-bottom: 10px;
 }
 .value-hidden {
-  filter: blur(8px);
   user-select: none;
   pointer-events: none;
-  opacity: 0.4;
   transition: filter var(--transition-base), opacity var(--transition-base);
 }
 .value-visible {
@@ -506,7 +504,6 @@ button { font-family: inherit; }
 .note-textarea {
   width: 100%;
   min-height: 44px;
-  max-height: 240px;
   padding: 12px 14px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
@@ -515,7 +512,7 @@ button { font-family: inherit; }
   font-family: inherit;
   font-size: 14px;
   line-height: 1.6;
-  resize: vertical;
+  resize: none;
   transition: border-color var(--transition-base), box-shadow var(--transition-base);
 }
 .note-textarea:focus {
@@ -530,7 +527,6 @@ button { font-family: inherit; }
 #itemValue {
   width: 100%;
   min-height: 72px;
-  max-height: 60vh;
   padding: 16px 18px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
@@ -539,7 +535,7 @@ button { font-family: inherit; }
   font-family: ui-monospace, "Cascadia Mono", "JetBrains Mono", "Consolas", monospace;
   font-size: 14px;
   line-height: 1.7;
-  resize: vertical;
+  resize: none;
   transition: border-color var(--transition-base), box-shadow var(--transition-base);
 }
 #itemValue:focus {
