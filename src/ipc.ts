@@ -66,6 +66,8 @@ export interface SecretboxIpc {
   wipe(): Promise<void>;
   /** 弹原生"另存为"对话框保存导出内容，返回保存路径；取消返回空串。 */
   saveSnapshotFile(filename: string, content: string): Promise<string>;
+  /** 把原生窗口边框/标题栏颜色设为指定主题（"light" | "dark"）。 */
+  applyWindowTheme(theme: "light" | "dark"): Promise<void>;
 }
 
 export interface ItemInput {
@@ -126,6 +128,8 @@ function createTauriIpc(): SecretboxIpc {
     wipe: () => invoke<void>("wipe"),
     saveSnapshotFile: (filename: string, content: string) =>
       invoke<string>("save_snapshot_file", { filename, content }),
+    applyWindowTheme: (theme: "light" | "dark") =>
+      invoke<void>("apply_window_theme", { theme }),
   };
 }
 

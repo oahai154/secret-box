@@ -23,6 +23,16 @@
     } catch {
       /* 忽略存储失败 */
     }
+    // 原生窗口边框/标题栏颜色跟随主题；system 需解析成实际明暗（浏览器测试环境无 Tauri，静默忽略）
+    const effective: "light" | "dark" =
+      theme === "system"
+        ? window.matchMedia("(prefers-color-scheme: light)").matches
+          ? "light"
+          : "dark"
+        : theme === "light"
+          ? "light"
+          : "dark";
+    ipc.applyWindowTheme(effective).catch(() => {});
     themeMode = theme;
   }
 
@@ -88,6 +98,31 @@
     };
     events.forEach((evt) => document.addEventListener(evt, onActivity, { passive: true }));
     return () => events.forEach((evt) => document.removeEventListener(evt, onActivity));
+  });
+
+  // ---------- 拦截 WebView 默认行为 ----------
+  // 右键菜单：输入框放行（右键粘贴是高频操作），其余拦截，避免"刷新/另存为/打印"暴露明文或破坏会话
+  function isEditable(t: EventTarget | null): boolean {
+    if (!(t instanceof HTMLElement)) return false;
+    return t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable;
+  }
+  $effect(() => {
+    const onContextMenu = (e: MouseEvent) => {
+      if (!isEditable(e.target)) e.preventDefault();
+    };
+    // F5 / Ctrl+R 重载会丢掉解锁状态，Ctrl+P 会把明文送进打印流程，一律拦截
+    const onKeyDown = (e: KeyboardEvent) => {
+      const k = e.key.toLowerCase();
+      if (e.key === "F5" || (e.ctrlKey && k === "r") || (e.ctrlKey && k === "p")) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("contextmenu", onContextMenu);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      window.removeEventListener("contextmenu", onContextMenu);
+      window.removeEventListener("keydown", onKeyDown, true);
+    };
   });
 
   // ---------- 启动 ----------

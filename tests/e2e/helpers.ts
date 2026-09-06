@@ -175,6 +175,7 @@ export function injectMockIpc(page: Page): void {
           };
         },
         saveSnapshotFile: async (filename) => "C:\\\\mock\\\\exports\\\\" + filename,
+        applyWindowTheme: async () => {},
         importSnapshot: async (password, content) => {
           if (!content) throw "迁移文件无法解析(损坏?)";
           if (password !== "mock-import-pass") throw "迁移口令错误或文件已损坏";

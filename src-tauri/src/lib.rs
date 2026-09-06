@@ -26,6 +26,7 @@ pub fn run(db_path: &str) -> Result<(), String> {
     tauri::Builder::default()
         .manage(state)
         .invoke_handler(tauri::generate_handler![
+            apply_window_theme,
             get_status,
             unlock,
             lock,
@@ -60,6 +61,54 @@ fn open_state(db_path: &str) -> Result<AppState, String> {
         db: Mutex::new(Some(db)),
         key: Mutex::new(None),
     })
+}
+
+// ---------- 原生窗口配色（Windows：边框/标题栏跟随应用主题） ----------
+
+/// 把窗口边框与标题栏颜色设为同一个应用主题色，避免系统强调色（如粉橙色边框）
+/// 与深色 UI 冲突。颜色独立于 src/style.css 变量，改动需同步修改下方硬编码值，
+/// COLORREF 字节序为 0x00BBGGRR。配色失败只静默忽略（纯装饰，不值得中断）。
+fn apply_window_theme_impl(window: &tauri::WebviewWindow, theme: &str) {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::COLORREF;
+        use windows::Win32::Graphics::Dwm::{
+            DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_CAPTION_COLOR,
+        };
+
+        // 边框与标题栏同色（不做层次区分）：暗色 #202329，亮色 #ffffff
+        let (border, caption) = if theme == "light" {
+            (0x00FFFFFF, 0x00FFFFFF) // #ffffff
+        } else {
+            (0x00292320, 0x00292320) // #202329
+        };
+
+        if let Ok(hwnd) = window.hwnd() {
+            unsafe {
+                let _ = DwmSetWindowAttribute(
+                    hwnd,
+                    DWMWA_BORDER_COLOR,
+                    &COLORREF(border) as *const COLORREF as *const std::ffi::c_void,
+                    std::mem::size_of::<COLORREF>() as u32,
+                );
+                let _ = DwmSetWindowAttribute(
+                    hwnd,
+                    DWMWA_CAPTION_COLOR,
+                    &COLORREF(caption) as *const COLORREF as *const std::ffi::c_void,
+                    std::mem::size_of::<COLORREF>() as u32,
+                );
+            }
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (window, theme);
+    }
+}
+
+#[tauri::command]
+fn apply_window_theme(window: tauri::WebviewWindow, theme: String) {
+    apply_window_theme_impl(&window, &theme);
 }
 
 // ---------- 命令实现（独立于 Tauri 宏，可测试） ----------

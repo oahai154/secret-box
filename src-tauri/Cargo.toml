@@ -17,3 +17,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = [] }
 rfd = "0.15"
+# 仅用于 DWM 窗口配色（边框/标题栏跟随主题），版本需与 tauri 传递依赖一致
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm"] }
