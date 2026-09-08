@@ -1,13 +1,12 @@
 // 工单 #04 验收：设置页恢复密钥生命周期（ADR-0003）。
 // 解锁后可查看/复制（与生成时一致）；重生成需验证主密码，旧码作废。
 import { expect, test } from "@playwright/test";
-import { injectMockIpc } from "./helpers";
+import { injectMockIpc, login } from "./helpers";
 
 const MOCK_RECOVERY_KEY = "K7MQ-4XTA-9PLW-2RDN-6VHC-3XBT-8YQE-5ZJS";
 
 async function openSettings(page: import("@playwright/test").Page) {
-  await page.fill("#authPassword", "golden-test-password");
-  await page.click("#authBtn");
+  await login(page, "golden-test-password");
   await expect(page.locator(".main-view")).toBeVisible();
   await page.click("#settingsBtn");
   await expect(page.locator(".card-settings")).toBeVisible();

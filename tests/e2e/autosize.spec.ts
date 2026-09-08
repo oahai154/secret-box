@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { injectMockIpc } from "./helpers";
+import { injectMockIpc, login } from "./helpers";
 
 // 回归：textarea 按内容自动长开，无内层滚动塌陷。
 // 覆盖路径：切换条目、显示/隐藏保密内容。
@@ -15,8 +15,7 @@ async function heightOf(page: import("@playwright/test").Page, id: string) {
 test("保密内容显示时按内容长开，隐藏时固定最小高度", async ({ page }) => {
   injectMockIpc(page);
   await page.goto("/");
-  await page.fill("#authPassword", "golden-test-password");
-  await page.click("#authBtn");
+  await login(page, "golden-test-password");
   await expect(page.locator("#itemList .item")).toHaveCount(3);
 
   // 新建条目写入多行保密内容

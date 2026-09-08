@@ -38,10 +38,25 @@ export function loadFixture(): Fixture {
 }
 
 /**
+ * 解锁页登录：填入主密码后点"解锁"按钮，并等待登录视图卸载。
+ * 输入停顿 250ms 会触发自动登录，可能先于点击解锁；两条路径都会卸载
+ * 登录视图，因此等待卸载是确定性的（点击短超时兜底，自动登录已卸载时忽略）。
+ */
+export async function login(page: Page, password: string): Promise<void> {
+  await page.fill("#authPassword", password);
+  await page
+    .locator("#authBtn")
+    .click({ timeout: 400 })
+    .catch(() => {
+      /* 已被自动登录卸载 */
+    });
+  await page.waitForSelector("#authBtn", { state: "detached" });
+}
+
+/**
  * 在页面脚本运行前注入 mock IPC（应用启动时检测 window.__SECRETBOX_IPC__）。
  */
-export function injectMockIpc(page: Page): void {
-  const fix = loadFixture();
+export function injectMockIpc(page: Page): void {  const fix = loadFixture();
   const code = `
     window.__SECRETBOX_IPC__ = (() => {
       const fix = ${JSON.stringify(fix)};

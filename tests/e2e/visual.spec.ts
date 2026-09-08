@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
-import { injectMockIpc } from "./helpers";
+import { injectMockIpc, login } from "./helpers";
 
 // 视觉对照：与 Go 版 web/ 页面截取的基准图做像素对比。
 // 基准图由 tests/e2e/capture-baselines.mjs 生成（Go 版跑在同一台机器、同一浏览器、
@@ -59,8 +59,7 @@ test.describe("视觉对照（与 Go 版基准）", () => {
   test("条目列表页", async ({ page }) => {
     injectMockIpc(page);
     await page.goto("/");
-    await page.fill("#authPassword", "golden-test-password");
-    await page.click("#authBtn");
+    await login(page, "golden-test-password");
     await expect(page.locator("#itemList .item")).toHaveCount(3);
     await expect(page.locator("#itemTitle")).not.toHaveValue("");
     // 等 toast（已解锁）消失后再截图，两侧一致
@@ -72,8 +71,7 @@ test.describe("视觉对照（与 Go 版基准）", () => {
   test("新增条目页", async ({ page }) => {
     injectMockIpc(page);
     await page.goto("/");
-    await page.fill("#authPassword", "golden-test-password");
-    await page.click("#authBtn");
+    await login(page, "golden-test-password");
     await expect(page.locator("#itemList .item")).toHaveCount(3);
     await page.waitForTimeout(2500); // 等 toast 消失
     await page.click("#newBtn");
@@ -86,8 +84,7 @@ test.describe("视觉对照（与 Go 版基准）", () => {
   test("保密内容显示态", async ({ page }) => {
     injectMockIpc(page);
     await page.goto("/");
-    await page.fill("#authPassword", "golden-test-password");
-    await page.click("#authBtn");
+    await login(page, "golden-test-password");
     await expect(page.locator("#itemList .item")).toHaveCount(3);
     await page.waitForTimeout(2500);
     await page.click("#toggleValueBtn");
@@ -99,8 +96,7 @@ test.describe("视觉对照（与 Go 版基准）", () => {
   test("历史版本面板", async ({ page }) => {
     injectMockIpc(page);
     await page.goto("/");
-    await page.fill("#authPassword", "golden-test-password");
-    await page.click("#authBtn");
+    await login(page, "golden-test-password");
     await expect(page.locator("#itemList .item")).toHaveCount(3);
     await page.waitForTimeout(2500);
     // 选中第二个条目（公司邮箱，含 3 个版本）并滚动到历史面板
@@ -115,8 +111,7 @@ test.describe("视觉对照（与 Go 版基准）", () => {
   test("设置弹窗", async ({ page }) => {
     injectMockIpc(page);
     await page.goto("/");
-    await page.fill("#authPassword", "golden-test-password");
-    await page.click("#authBtn");
+    await login(page, "golden-test-password");
     await expect(page.locator("#itemList .item")).toHaveCount(3);
     await page.waitForTimeout(2500);
     // 与 Go 基准一致：条目 1 + 页面顶部
@@ -139,8 +134,7 @@ test.describe("视觉对照（与 Go 版基准）", () => {
   test("修改密码弹窗", async ({ page }) => {
     injectMockIpc(page);
     await page.goto("/");
-    await page.fill("#authPassword", "golden-test-password");
-    await page.click("#authBtn");
+    await login(page, "golden-test-password");
     await expect(page.locator("#itemList .item")).toHaveCount(3);
     await page.waitForTimeout(2500);
     await page.click("#itemList .item:nth-child(1)");
@@ -164,8 +158,7 @@ test.describe("视觉对照（与 Go 版基准）", () => {
   test("数据备份与迁移弹窗", async ({ page }) => {
     injectMockIpc(page);
     await page.goto("/");
-    await page.fill("#authPassword", "golden-test-password");
-    await page.click("#authBtn");
+    await login(page, "golden-test-password");
     await expect(page.locator("#itemList .item")).toHaveCount(3);
     await page.waitForTimeout(2500);
     await page.click("#itemList .item:nth-child(1)");
@@ -187,8 +180,7 @@ test.describe("视觉对照（与 Go 版基准）", () => {
   test("空列表态", async ({ page }) => {
     injectMockIpc(page);
     await page.goto("/");
-    await page.fill("#authPassword", "golden-test-password");
-    await page.click("#authBtn");
+    await login(page, "golden-test-password");
     await expect(page.locator("#itemList .item")).toHaveCount(3);
     await page.waitForTimeout(2500);
     // 逐个删除全部条目（与 Go 基准流程一致；确认弹窗为自定义组件）

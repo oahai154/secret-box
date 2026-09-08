@@ -1,10 +1,9 @@
 import { expect, test } from "@playwright/test";
-import { injectMockIpc } from "./helpers";
+import { injectMockIpc, login } from "./helpers";
 
 async function unlock(page: import("@playwright/test").Page) {
   await page.goto("/");
-  await page.fill("#authPassword", "golden-test-password");
-  await page.click("#authBtn");
+  await login(page, "golden-test-password");
   await expect(page.locator("#itemList .item")).toHaveCount(3);
 }
 

@@ -2,7 +2,7 @@
 // 锁屏入口 → 输恢复密钥 + 新主密码 → 直接进入主界面，数据完整；
 // 错误恢复密钥到不了设新密码一步；救援后恢复密钥继续有效（mock 语义一致）。
 import { expect, test } from "@playwright/test";
-import { injectMockIpc } from "./helpers";
+import { injectMockIpc, login } from "./helpers";
 
 const MOCK_RECOVERY_KEY = "K7MQ-4XTA-9PLW-2RDN-6VHC-3XBT-8YQE-5ZJS";
 
@@ -68,8 +68,7 @@ test.describe("忘记主密码救援流程", () => {
     await page.click("#authBtn");
     await expect(page.locator("#authError")).not.toHaveText("");
 
-    await page.fill("#authPassword", "rescued-pass-9");
-    await page.click("#authBtn");
+    await login(page, "rescued-pass-9");
     await expect(page.locator(".main-view")).toBeVisible();
   });
 });

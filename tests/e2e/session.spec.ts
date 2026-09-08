@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { injectMockIpc } from "./helpers";
+import { injectMockIpc, login } from "./helpers";
 
 test.describe("解锁/锁定会话", () => {
   test.beforeEach(async ({ page }) => {
@@ -21,8 +21,7 @@ test.describe("解锁/锁定会话", () => {
 
   test("正确主密码进入条目列表", async ({ page }) => {
     await page.goto("/");
-    await page.fill("#authPassword", "golden-test-password");
-    await page.click("#authBtn");
+    await login(page, "golden-test-password");
 
     await expect(page.locator(".main-view")).toBeVisible();
     await expect(page.locator("#itemList .item")).toHaveCount(3);
@@ -33,8 +32,7 @@ test.describe("解锁/锁定会话", () => {
 
   test("手动锁定后回到解锁页，需要重新解锁", async ({ page }) => {
     await page.goto("/");
-    await page.fill("#authPassword", "golden-test-password");
-    await page.click("#authBtn");
+    await login(page, "golden-test-password");
     await expect(page.locator(".main-view")).toBeVisible();
 
     await page.click("#lockBtn");
@@ -42,16 +40,14 @@ test.describe("解锁/锁定会话", () => {
     await expect(page.locator(".main-view")).toHaveCount(0);
 
     // 重新解锁成功
-    await page.fill("#authPassword", "golden-test-password");
-    await page.click("#authBtn");
+    await login(page, "golden-test-password");
     await expect(page.locator(".main-view")).toBeVisible();
   });
 
   test("无操作 120 秒后自动锁定（fake timer）", async ({ page }) => {
     await page.clock.install();
     await page.goto("/");
-    await page.fill("#authPassword", "golden-test-password");
-    await page.click("#authBtn");
+    await login(page, "golden-test-password");
     await expect(page.locator(".main-view")).toBeVisible();
 
     // 快进 119 秒：仍处于解锁状态

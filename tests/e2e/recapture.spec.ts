@@ -5,7 +5,7 @@
 import { expect, test } from "@playwright/test";
 import * as fs from "fs";
 import * as path from "path";
-import { injectMockIpc } from "./helpers";
+import { injectMockIpc, login } from "./helpers";
 
 const BASELINES = path.join(import.meta.dirname, "baselines");
 const STEPS: Record<string, (page: import("@playwright/test").Page) => Promise<void>> = {
@@ -14,8 +14,7 @@ const STEPS: Record<string, (page: import("@playwright/test").Page) => Promise<v
     await expect(page.locator("#authPassword")).toBeFocused();
   },
   "settings.png": async (page) => {
-    await page.fill("#authPassword", "golden-test-password");
-    await page.click("#authBtn");
+    await login(page, "golden-test-password");
     await page.locator("#itemList .item").first().waitFor();
     await page.waitForTimeout(2500);
     await page.click("#itemList .item:nth-child(1)");

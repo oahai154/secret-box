@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { injectMockIpc } from "./helpers";
+import { injectMockIpc, login } from "./helpers";
 
 // fixture 中"公司邮箱"（id=2）有 3 个历史版本，v3 内容为 Q3 密码
 const ITEM_TITLE = "公司邮箱";
@@ -8,8 +8,7 @@ const V1_SNAPSHOT = "zhang.san@corp.example.cn: Mail-Pass-2026-#315";
 
 async function unlockAndSelect(page: import("@playwright/test").Page) {
   await page.goto("/");
-  await page.fill("#authPassword", "golden-test-password");
-  await page.click("#authBtn");
+  await login(page, "golden-test-password");
   await expect(page.locator("#itemList .item")).toHaveCount(3);
   // 选中公司邮箱（v3 条目）
   await page.locator("#itemList .item", { hasText: ITEM_TITLE }).click();

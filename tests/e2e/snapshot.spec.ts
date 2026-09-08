@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { injectMockIpc } from "./helpers";
+import { injectMockIpc, login } from "./helpers";
 
 // 工单 #06 验收：快照导出（含选择保存位置 mock）、导入、清除痕迹确认流程。
 // 加密文件格式与跨语言互通由 Rust 集成测试 + Go 工具回环保证，这里验证前端交互。
@@ -15,8 +15,7 @@ test.describe("数据备份与迁移", () => {
   test.beforeEach(async ({ page }) => {
     injectMockIpc(page);
     await page.goto("/");
-    await page.fill("#authPassword", "golden-test-password");
-    await page.click("#authBtn");
+    await login(page, "golden-test-password");
     await expect(page.locator(".main-view")).toBeVisible();
     await page.waitForTimeout(2500); // 等 toast 消失
     await page.click("#dbBtn");

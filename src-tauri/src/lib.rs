@@ -662,8 +662,13 @@ fn get_status(state: State<AppState>) -> Result<serde_json::Value, String> {
     status_impl(&state)
 }
 
+/// 解锁命令必须是 async：scrypt 校验可达数百毫秒，同步命令占住主线程，
+/// Windows 上键盘消息无法泵入 WebView，表现为验证期间打不了字。
 #[tauri::command]
-fn unlock(state: State<AppState>, password: String) -> Result<serde_json::Value, String> {
+async fn unlock(
+    state: State<'_, AppState>,
+    password: String,
+) -> Result<serde_json::Value, String> {
     unlock_impl(&state, &password)
 }
 
