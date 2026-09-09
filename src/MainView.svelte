@@ -557,7 +557,7 @@
                 <label class="field-label" for="itemTitle">标题</label>
                 <input id="itemTitle" type="text" placeholder="例:GitHub 密钥" bind:this={titleInput} bind:value={detail.title} />
               </div>
-              <div class="editor-foot" style="margin-top: 16px;">
+              <div class="editor-foot">
                 <div class="custom-select" id="categorySelect" class:open={categoryOpen}>
                   <button
                     class="custom-select-trigger"
@@ -588,9 +588,9 @@
                     : `创建 ${formatTime(detail.created_at)} · 修改 ${formatTime(detail.updated_at)}`}
                 </span>
               </div>
-            </div>
 
-            <div class="editor-card">
+              <div class="editor-divider"></div>
+
               <div class="editor-row">
                 <div class="field-header">
                   <label class="field-label" for="itemValue">保密内容</label>
@@ -606,6 +606,7 @@
                 </div>
                 <textarea
                   id="itemValue"
+                  rows={1}
                   bind:this={valueEl}
                   class={valueVisible ? "value-visible" : "value-hidden"}
                   placeholder="点击「点击显示」查看保密内容…"
@@ -617,13 +618,14 @@
                   }}
                 ></textarea>
               </div>
-            </div>
 
-            <div class="editor-card">
+              <div class="editor-divider"></div>
+
               <div class="editor-row">
                 <label class="field-label" for="itemNote">备注</label>
                 <textarea
                   id="itemNote"
+                  rows={1}
                   bind:this={noteEl}
                   class="note-textarea"
                   placeholder="添加备注信息(可选)…"
@@ -631,13 +633,15 @@
                   bind:value={detail.note}
                 ></textarea>
               </div>
-            </div>
 
-            <div class="editor-actions">
-              <button id="saveBtn" class="btn btn-primary" onclick={save}>💾 保存</button>
-              <button id="deleteBtn" class="btn btn-danger" onclick={remove}>🗑 删除</button>
-              <span class="spacer"></span>
-              <span class="hint-hk">Ctrl + S 快速保存</span>
+              <div class="editor-divider"></div>
+
+              <div class="editor-actions">
+                <button id="saveBtn" class="btn btn-primary" onclick={save}>💾 保存</button>
+                <button id="deleteBtn" class="btn btn-danger" onclick={remove}>🗑 删除</button>
+                <span class="spacer"></span>
+                <span class="hint-hk">Ctrl + S 快速保存</span>
+              </div>
             </div>
           {/key}
         </div>
