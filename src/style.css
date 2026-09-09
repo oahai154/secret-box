@@ -205,6 +205,17 @@ button { font-family: inherit; }
   color: var(--danger); min-height: 20px; margin-top: 12px; font-size: 13px;
 }
 
+/* 解锁页页脚：版本标识（固定底部居中，不挤占卡片布局） */
+.auth-footer {
+  position: fixed;
+  left: 0; right: 0; bottom: 16px;
+  text-align: center;
+  color: var(--faint);
+  font-size: 12px;
+  letter-spacing: .3px;
+  user-select: none;
+}
+
 /* ============================================================
    按钮
    ============================================================ */

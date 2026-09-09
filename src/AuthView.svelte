@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ipc } from "./ipc";
+  import { ipc, type AppInfo } from "./ipc";
 
   let {
     hasPassword,
@@ -16,6 +16,12 @@
   let password = $state("");
   let password2 = $state("");
   let error = $state("");
+
+  // 页脚版本标识：来自后端（与安装包一致），取不到就静默不显示
+  let appInfo = $state<AppInfo | null>(null);
+  $effect(() => {
+    ipc.getAppInfo().then((info) => (appInfo = info)).catch(() => {});
+  });
   // busy 只反映手动提交（回车/按钮），按钮的"解锁中…"动画只随它变化；
   // 自动验证走 autoVerifying，界面上不显示动画。
   let busy = $state(false);
@@ -133,4 +139,7 @@
       </button>
     {/if}
   </form>
+  {#if appInfo}
+    <footer id="authFooter" class="auth-footer">{appInfo.name} v{appInfo.version}</footer>
+  {/if}
 </div>

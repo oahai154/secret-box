@@ -1,6 +1,6 @@
 <script lang="ts">
   // 设置弹窗（复刻 Go 版 settingsModal，v2 增加恢复密钥区，见 ADR-0003）
-  import { ipc, type Settings } from "./ipc";
+  import { ipc, type Settings, type AppInfo } from "./ipc";
 
   let {
     settings,
@@ -28,10 +28,16 @@
   let regenError = $state("");
   let copiedRecovery = $state(false);
 
+  // "关于"区：项目地址取自 git remote（GitHub 主仓 + Gitee 镜像），版本来自后端
+  const GITHUB_URL = "https://github.com/oahai154/secret-box";
+  const GITEE_URL = "https://gitee.com/mweidian/secret-box";
+  let appInfo = $state<AppInfo | null>(null);
+
   $effect(() => {
     autoLock = settings.auto_lock_seconds ?? "120";
     deleteRequiresPassword = settings.delete_requires_password !== "false";
     deleteVersionRequiresPassword = settings.delete_version_requires_password !== "false";
+    ipc.getAppInfo().then((info) => (appInfo = info)).catch(() => {});
   });
 
   async function viewRecoveryKey() {
@@ -210,6 +216,25 @@
       </div>
     </div>
 
+    <div class="settings-section">
+      <div class="settings-row">
+        <div class="settings-label">
+          <div class="settings-label-title">SecretBox{appInfo ? ` v${appInfo.version}` : ""}</div>
+          <div class="settings-label-desc">本地加密密码管理器,数据只存在本地</div>
+        </div>
+        <div class="settings-control about-links">
+          <button id="githubLink" class="btn btn-ghost btn-sm" type="button"
+            title={GITHUB_URL} onclick={() => ipc.openExternal(GITHUB_URL)}>
+            GitHub 仓库
+          </button>
+          <button id="giteeLink" class="btn btn-ghost btn-sm" type="button"
+            title={GITEE_URL} onclick={() => ipc.openExternal(GITEE_URL)}>
+            Gitee 镜像
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div class="modal-actions">
       <button id="settingsCloseBtn" class="btn btn-ghost" type="button" onclick={onClose}>关闭</button>
     </div>
@@ -217,6 +242,10 @@
 </div>
 
 <style>
+  .about-links {
+    display: flex;
+    gap: 8px;
+  }
   .recovery-view {
     margin-top: 10px;
     display: flex;

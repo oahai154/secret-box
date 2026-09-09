@@ -37,6 +37,12 @@ export function loadFixture(): Fixture {
   return JSON.parse(fs.readFileSync(fixturePath, "utf-8")) as Fixture;
 }
 
+/** 应用版本：与真实后端一致地取自 package.json（版本号以 tauri.conf.json 为准同步）。 */
+function readAppVersion(): string {
+  const pkgPath = path.join(import.meta.dirname, "../../package.json");
+  return (JSON.parse(fs.readFileSync(pkgPath, "utf-8")) as { version: string }).version;
+}
+
 /**
  * 解锁页登录：填入主密码后点"解锁"按钮，并等待登录视图卸载。
  * 输入停顿 250ms 会触发自动登录，可能先于点击解锁；两条路径都会卸载
@@ -57,9 +63,11 @@ export async function login(page: Page, password: string): Promise<void> {
  * 在页面脚本运行前注入 mock IPC（应用启动时检测 window.__SECRETBOX_IPC__）。
  */
 export function injectMockIpc(page: Page): void {  const fix = loadFixture();
+  const appVersion = readAppVersion();
   const code = `
     window.__SECRETBOX_IPC__ = (() => {
       const fix = ${JSON.stringify(fix)};
+      const appVersion = ${JSON.stringify(appVersion)};
       const settings = {
         auto_lock_seconds: "120",
         delete_requires_password: "true",
@@ -71,6 +79,10 @@ export function injectMockIpc(page: Page): void {  const fix = loadFixture();
       let mockRecoveryKey = "K7MQ-4XTA-9PLW-2RDN-6VHC-3XBT-8YQE-5ZJS";
       return {
         getStatus: async () => ({ has_password: true, unlocked: false, legacy: false }),
+        // 与后端 get_app_info 一致：名称固定、版本与安装包（package.json 同步值）一致
+        getAppInfo: async () => ({ name: "SecretBox", version: appVersion }),
+        // 与后端 open_url 一致：仅放行 http/https，测试中无需真的打开
+        openExternal: async () => {},
         upgradeV1: async (password) => {
           // 与后端一致：主密码不变，数据迁移后返回新生成的恢复密钥
           if (password !== fix.password) throw "主密码不正确";

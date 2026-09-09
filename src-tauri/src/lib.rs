@@ -33,6 +33,9 @@ pub fn run(db_path: &str) -> Result<(), String> {
                 let _ = window.set_focus();
             }
         }))
+        // 外部链接（设置"关于"区的项目地址）用系统默认浏览器打开；
+        // 只在 Rust 侧调用插件的 Rust API，不需要 capabilities 授权。
+        .plugin(tauri_plugin_opener::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             apply_window_theme,
@@ -60,7 +63,9 @@ pub fn run(db_path: &str) -> Result<(), String> {
             export_snapshot,
             import_snapshot,
             wipe,
-            save_snapshot_file
+            save_snapshot_file,
+            get_app_info,
+            open_url
         ])
         .run(tauri::generate_context!())
         .map_err(|err| format!("Tauri 应用运行异常: {err}"))?;
@@ -655,6 +660,23 @@ fn with_db<T>(state: &AppState, f: impl FnOnce(&mut Db) -> Result<T, String>) ->
     f(db)
 }
 
+// ---------- 应用信息与外部链接 ----------
+
+/// 应用信息：名称固定，版本由命令层从 tauri.conf.json（构建期嵌入）取来，
+/// 保证界面显示与安装包一致。
+fn app_info_impl(version: &str) -> serde_json::Value {
+    serde_json::json!({ "name": "SecretBox", "version": version })
+}
+
+/// 外链白名单：只放行网页链接，杜绝 file://、shell:、javascript: 等任意 scheme。
+fn validate_url(url: &str) -> Result<(), String> {
+    if url.starts_with("https://") || url.starts_with("http://") {
+        Ok(())
+    } else {
+        Err("仅允许打开 http/https 链接".to_string())
+    }
+}
+
 // ---------- Tauri 命令包装 ----------
 
 #[tauri::command]
@@ -816,6 +838,20 @@ fn wipe(state: State<AppState>) -> Result<serde_json::Value, String> {
 #[tauri::command]
 fn save_snapshot_file(filename: String, content: String) -> Result<String, String> {
     save_snapshot_file_impl(&filename, &content)
+}
+
+#[tauri::command]
+fn get_app_info(app: tauri::AppHandle) -> serde_json::Value {
+    app_info_impl(&app.package_info().version.to_string())
+}
+
+#[tauri::command]
+fn open_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    validate_url(&url)?;
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|err| format!("打开链接失败: {err}"))
 }
 
 #[cfg(test)]
@@ -1198,5 +1234,23 @@ mod tests {
         assert_eq!(status["unlocked"], false);
         setup_password_impl(&state, "brand-new-pass").unwrap();
         assert_eq!(list_items_impl(&state).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn 应用信息返回名称与版本() {
+        let info = app_info_impl("0.3.1");
+        assert_eq!(info["name"], "SecretBox");
+        assert_eq!(info["version"], "0.3.1");
+    }
+
+    #[test]
+    fn 外链白名单_仅放行网页链接() {
+        assert!(validate_url("https://github.com/oahai154/secret-box").is_ok());
+        assert!(validate_url("http://example.com/x?y=1").is_ok());
+        assert!(validate_url("file:///C:/Windows/System32").is_err());
+        assert!(validate_url("shell:open").is_err());
+        assert!(validate_url("javascript:alert(1)").is_err());
+        assert!(validate_url("HTTPS://example.com").is_err(), "scheme 区分大小写");
+        assert!(validate_url("").is_err());
     }
 }

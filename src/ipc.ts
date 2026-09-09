@@ -30,6 +30,12 @@ export interface Status {
   legacy?: boolean;
 }
 
+// 应用信息（解锁页页脚与设置"关于"区展示）
+export interface AppInfo {
+  name: string;
+  version: string;
+}
+
 // 首次设置主密码的结果：同时返回生成的恢复密钥（见 ADR-0003）
 export interface SetupResult {
   ok: boolean;
@@ -53,6 +59,10 @@ export interface ImportResult {
 
 export interface SecretboxIpc {
   getStatus(): Promise<Status>;
+  /** 应用名称与版本，后端取自 tauri.conf.json，与安装包一致。 */
+  getAppInfo(): Promise<AppInfo>;
+  /** 用系统默认浏览器打开外部网页链接（后端仅放行 http/https）。 */
+  openExternal(url: string): Promise<void>;
   unlock(password: string): Promise<void>;
   lock(): Promise<void>;
   setupPassword(password: string): Promise<SetupResult>;
@@ -96,6 +106,8 @@ export interface ItemInput {
 function createTauriIpc(): SecretboxIpc {
   return {
     getStatus: () => invoke<Status>("get_status"),
+    getAppInfo: () => invoke<AppInfo>("get_app_info"),
+    openExternal: (url: string) => invoke<void>("open_url", { url }),
     unlock: async (password: string) => {
       await invoke("unlock", { password });
     },

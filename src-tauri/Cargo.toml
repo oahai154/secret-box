@@ -1,6 +1,6 @@
 [package]
 name = "secretbox"
-version = "0.1.0"
+version = "0.3.1"
 edition.workspace = true
 description = "SecretBox 桌面应用（Tauri 2）"
 
@@ -17,6 +17,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = [] }
 tauri-plugin-single-instance = "2"
+# 外部链接用系统默认浏览器打开（设置"关于"区的项目地址）
+tauri-plugin-opener = "2"
 rfd = "0.15"
 # 仅用于 DWM 窗口配色（边框/标题栏跟随主题），版本需与 tauri 传递依赖一致
 [target.'cfg(windows)'.dependencies]
