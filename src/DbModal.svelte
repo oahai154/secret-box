@@ -7,6 +7,7 @@
     hasPassword,
     onClose,
     onExport,
+    onExportCsv,
     onImportFile,
     onWipe,
   }: {
@@ -14,6 +15,7 @@
     hasPassword: boolean;
     onClose: () => void;
     onExport: () => void;
+    onExportCsv: () => void;
     onImportFile: (file: File) => void;
     onWipe: () => void;
   } = $props();
@@ -47,6 +49,9 @@
     <div class="db-actions">
       <button id="exportBtn" class="btn btn-primary btn-block" type="button" onclick={onExport}>导出迁移文件(备份)</button>
       <div class="export-hint">用一个独立的迁移口令加密整个库(含历史版本),保存后可用 "<b>导入迁移文件</b>" 在新位置还原。</div>
+
+      <button id="exportCsvBtn" class="btn btn-ghost btn-block" type="button" onclick={onExportCsv}>导出明文 CSV</button>
+      <div class="export-hint">不加密导出全部条目(仅当前版本,不含历史版本),供迁往其他密码管理器或表格软件查看。<b>任何拿到此文件的人都能读取全部内容</b>,请妥善保管、用完即删;完整备份请用"导出迁移文件"。</div>
 
       <button id="importBtn" class="btn btn-ghost btn-block" type="button" onclick={() => fileInput?.click()}>导入迁移文件(还原)</button>
       <input type="file" id="importFile" accept=".secretbox" class="hidden" bind:this={fileInput} onchange={handleFileChange} />

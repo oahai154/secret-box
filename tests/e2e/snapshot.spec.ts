@@ -44,6 +44,32 @@ test.describe("数据备份与迁移", () => {
     );
   });
 
+  test("明文导出：警示确认后一键导出，取消则中止", async ({ page }) => {
+    await page.click("#exportCsvBtn");
+    // 数据弹窗先关闭，弹出警示确认（明文风险如实告知）
+    await expect(page.locator(".card-db")).toHaveCount(0);
+    const confirmModal = page
+      .locator(".modal")
+      .filter({ hasText: "任何拿到此文件的人都能读取全部内容" });
+    await expect(confirmModal).toBeVisible();
+
+    // 取消 → 中止，不产生导出
+    await confirmModal.getByRole("button", { name: "取消" }).click();
+    await expect(confirmModal).toHaveCount(0);
+
+    // 重新发起 → 确认后导出成功并提示文件名
+    await page.click("#dbBtn");
+    await page.click("#exportCsvBtn");
+    await page
+      .locator(".modal")
+      .filter({ hasText: "任何拿到此文件的人都能读取全部内容" })
+      .getByRole("button", { name: "继续导出" })
+      .click();
+    await expect(page.locator("#toast")).toContainText(
+      "已导出明文文件: secretbox-plain-20260905-120000.csv",
+    );
+  });
+
   test("导入：口令错误提示失败，正确口令导入后回到解锁页", async ({ page }) => {
     await page.click("#importBtn");
     await page.setInputFiles("#importFile", MOCK_SNAPSHOT_FILE);

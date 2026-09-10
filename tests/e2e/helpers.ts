@@ -232,6 +232,22 @@ export function injectMockIpc(page: Page): void {  const fix = loadFixture();
             content: btoa(unescape(encodeURIComponent(JSON.stringify(file)))),
           };
         },
+        // 与后端 export_csv 一致：BOM + 表头(标题,分类,内容,备注) + 每条目一行，RFC 4180 转义，CRLF 结尾
+        exportCsv: async () => {
+          // 注意：本 mock 位于外层模板字符串内，反斜杠序列必须双写，到浏览器里才是真正的转义
+          const esc = (s) =>
+            s.includes('"') || s.includes(",") || s.includes("\\r") || s.includes("\\n")
+              ? '"' + s.replaceAll('"', '""') + '"'
+              : s;
+          const rows = ["标题,分类,内容,备注"];
+          for (const it of store.values()) {
+            rows.push([it.title, it.category, it.value, it.note ?? ""].map(esc).join(","));
+          }
+          return {
+            filename: "secretbox-plain-20260905-120000.csv",
+            content: "\\uFEFF" + rows.join("\\r\\n") + "\\r\\n",
+          };
+        },
         saveSnapshotFile: async (filename) => "C:\\\\mock\\\\exports\\\\" + filename,
         applyWindowTheme: async () => {},
         importSnapshot: async (password, content) => {

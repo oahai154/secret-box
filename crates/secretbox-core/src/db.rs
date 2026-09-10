@@ -448,6 +448,19 @@ impl Db {
         Ok(item)
     }
 
+    /// 返回全部条目并解密各自 value（不含历史版本），供明文导出使用（ADR-0004）。
+    /// 仅在解锁态调用；锁定态由调用方（require_unlocked）拒绝。
+    pub fn list_items_with_values(&self, key: &[u8]) -> Result<Vec<Item>, SecretboxError> {
+        self.list_items()?
+            .into_iter()
+            .map(|mut it| {
+                let (_, encrypted) = self.query_item(it.id)?;
+                it.value = crypto::decrypt(key, &encrypted)?;
+                Ok(it)
+            })
+            .collect()
+    }
+
     /// 返回某条目全部版本（仅元数据），按版本号倒序。
     pub fn list_versions(&self, secret_id: i64) -> Result<Vec<Version>, SecretboxError> {
         let mut stmt = self.conn.prepare(

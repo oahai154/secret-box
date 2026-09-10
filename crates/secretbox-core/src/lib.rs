@@ -6,10 +6,12 @@
 
 pub mod crypto;
 pub mod db;
+pub mod export;
 pub mod migration;
 pub mod recovery;
 
 pub use crypto::{decrypt, derive_key, encrypt, CryptoError};
 pub use db::{Db, Item, SecretboxError, Version};
+pub use export::{build_csv, plaintext_filename};
 pub use migration::{backup_filename, build_file, parse_file, Snapshot, SnapshotItem, SnapshotVersion};
 pub use recovery::{generate_recovery_key, normalize_recovery_key};

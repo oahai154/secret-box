@@ -44,7 +44,8 @@ export interface SetupResult {
 
 export type Settings = Record<string, string>;
 
-// 导出快照的结果：文件名 + 文件内容（base64 文本，即 .secretbox 文件内容）
+// 导出的结果：文件名 + 文件内容。快照为 base64 文本（.secretbox 文件内容），
+// 明文 CSV 为原始文本（带 BOM）。
 export interface ExportResult {
   filename: string;
   content: string;
@@ -88,6 +89,8 @@ export interface SecretboxIpc {
   getSettings(): Promise<Settings>;
   updateSettings(updates: Settings): Promise<void>;
   exportSnapshot(password: string): Promise<ExportResult>;
+  /** 明文导出（ADR-0004）：一键生成不加密 CSV（标题/分类/内容/备注，不含历史版本）。锁定态后端拒绝。 */
+  exportCsv(): Promise<ExportResult>;
   importSnapshot(password: string, content: string): Promise<ImportResult>;
   wipe(): Promise<void>;
   /** 弹原生"另存为"对话框保存导出内容，返回保存路径；取消返回空串。 */
@@ -167,6 +170,7 @@ function createTauriIpc(): SecretboxIpc {
     getSettings: () => invoke<Settings>("get_settings"),
     updateSettings: (updates: Settings) => invoke<void>("update_settings", { settings: updates }),
     exportSnapshot: (password: string) => invoke<ExportResult>("export_snapshot", { password }),
+    exportCsv: () => invoke<ExportResult>("export_csv"),
     importSnapshot: (password: string, content: string) =>
       invoke<ImportResult>("import_snapshot", { password, content }),
     wipe: () => invoke<void>("wipe"),

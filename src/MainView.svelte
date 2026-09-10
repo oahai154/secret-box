@@ -347,6 +347,32 @@
     showDb = true;
   }
 
+  // 明文导出（ADR-0004）：一键生成不加密 CSV，不重输主密码（已解锁会话本就可见全部明文），
+  // 但必须先如实警示。先关数据弹窗再弹确认，避免确认弹窗被遮住（与 wipe 同一处理）。
+  function exportCsv() {
+    showDb = false;
+    confirmAction = {
+      title: "导出明文 CSV",
+      message:
+        "即将生成不加密的 CSV 文件,包含全部条目的标题、分类、内容与备注(不含历史版本)。任何拿到此文件的人都能读取全部内容,请妥善保管、用完即删。继续导出吗?",
+      confirmText: "继续导出",
+      danger: true,
+      run: async () => {
+        try {
+          const data = await ipc.exportCsv();
+          const saved = await ipc.saveSnapshotFile(data.filename, data.content);
+          if (!saved) {
+            onToast("未选择保存位置,导出已取消", "err");
+            return;
+          }
+          onToast("已导出明文文件: " + data.filename);
+        } catch (e) {
+          onToast("导出失败: " + (typeof e === "string" ? e : String(e)), "err");
+        }
+      },
+    };
+  }
+
   async function exportBackup(): Promise<boolean> {
     const pw = await askPassphrase("设置迁移口令", "该口令用于加密迁移文件,请务必牢记");
     if (pw === null) return false;
@@ -731,6 +757,7 @@
     hasPassword={dbHasPassword}
     onClose={() => (showDb = false)}
     onExport={exportBackup}
+    onExportCsv={exportCsv}
     onImportFile={handleImportFile}
     onWipe={wipe}
   />

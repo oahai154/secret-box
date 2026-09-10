@@ -8,8 +8,8 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 use secretbox_core::{
-    backup_filename, build_file, generate_recovery_key, parse_file, Db, Item, SecretboxError,
-    Snapshot, Version,
+    backup_filename, build_csv, build_file, generate_recovery_key, parse_file,
+    plaintext_filename, Db, Item, SecretboxError, Snapshot, Version,
 };
 use tauri::{Manager, State};
 
@@ -61,6 +61,7 @@ pub fn run(db_path: &str) -> Result<(), String> {
             get_settings,
             update_settings,
             export_snapshot,
+            export_csv,
             import_snapshot,
             wipe,
             save_snapshot_file,
@@ -586,6 +587,20 @@ fn export_snapshot_impl(
     }))
 }
 
+/// 明文导出（ADR-0004）：生成不加密 CSV（标题/分类/内容/备注，不含历史版本）。
+/// 一次调用即产出全库明文，锁定态必须拒绝——"锁定态拒绝一切明文读取"
+/// 的不变量由 require_unlocked 在此强制，而非依赖 UI。
+fn export_csv_impl(state: &AppState) -> Result<serde_json::Value, String> {
+    let key = require_unlocked(state)?;
+    let items = with_db(state, |db| {
+        db.list_items_with_values(&key).map_err(|err| err.to_string())
+    })?;
+    Ok(serde_json::json!({
+        "filename": plaintext_filename(),
+        "content": build_csv(&items),
+    }))
+}
+
 /// 导入快照迁移文件并覆盖本地数据。成功后弃用当前会话，需重新解锁。
 fn import_snapshot_impl(
     state: &AppState,
@@ -819,6 +834,11 @@ fn update_settings(
 #[tauri::command]
 fn export_snapshot(state: State<AppState>, password: String) -> Result<serde_json::Value, String> {
     export_snapshot_impl(&state, &password)
+}
+
+#[tauri::command]
+fn export_csv(state: State<AppState>) -> Result<serde_json::Value, String> {
+    export_csv_impl(&state)
 }
 
 #[tauri::command]
@@ -1209,6 +1229,30 @@ mod tests {
         // 原主密码可重新解锁，数据完整
         unlock_impl(&state, "golden-test-password").unwrap();
         assert_eq!(list_items_impl(&state).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn 明文导出csv_锁定拒绝_解锁后含BOM与全部条目() {
+        let (state, _tmp) = open_test_state();
+
+        // 锁定态拒绝一切明文读取（ADR-0004 不变量）
+        assert_eq!(export_csv_impl(&state).unwrap_err(), "未解锁");
+
+        unlock_impl(&state, "golden-test-password").unwrap();
+        let exported = export_csv_impl(&state).unwrap();
+        let filename = exported["filename"].as_str().unwrap();
+        let content = exported["content"].as_str().unwrap();
+        assert!(filename.starts_with("secretbox-plain-") && filename.ends_with(".csv"));
+        assert!(content.starts_with('\u{FEFF}'), "必须带 BOM，Windows Excel 才能识别 UTF-8");
+
+        // 表头 + 3 条条目，CRLF 结尾
+        let body = content.trim_start_matches('\u{FEFF}');
+        let rows: Vec<&str> = body.split("\r\n").collect();
+        assert_eq!(rows.last().unwrap(), &"", "应以 CRLF 结尾");
+        assert_eq!(rows.len() - 1, 4, "表头 + 3 条条目");
+        assert_eq!(rows[0], "标题,分类,内容,备注");
+        // 黄金样本条目原样出现在明文里
+        assert!(body.contains("家里 Wi-Fi & <路由器>"));
     }
 
     #[test]
