@@ -26,7 +26,15 @@ test("保密内容显示时按内容长开，隐藏时固定最小高度", async
   await page.click("#saveBtn");
   await expect(page.locator("#toast")).toContainText("已保存");
 
-  // 隐藏态：固定最小高度（min-height 72px），不随内容长开
+  // 新建界面默认展开（新建即展开：空条目没有秘密可藏），保存后内容仍在眼前且按内容长开
+  const shownAfterCreate = await heightOf(page, "#itemValue");
+  expect(shownAfterCreate.client, "保存后仍处于展开态").toBeGreaterThanOrEqual(
+    shownAfterCreate.scroll - 2,
+  );
+  expect(shownAfterCreate.client).toBeGreaterThan(300);
+
+  // 点「点击隐藏」→ 固定最小高度（min-height 72px），不随内容长开
+  await page.click("#toggleValueBtn");
   const hidden = await heightOf(page, "#itemValue");
   expect(hidden.client).toBeLessThan(100);
 

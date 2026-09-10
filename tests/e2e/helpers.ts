@@ -159,6 +159,15 @@ export function injectMockIpc(page: Page): void {  const fix = loadFixture();
         updateItem: async (id, input) => {
           const it = store.get(id);
           if (!it) throw "条目不存在";
+          // 与 Rust 后端一致：内容与当前值完全一致时视为没有改动，不写库、不建版本、不刷新 updated_at
+          if (
+            it.title === input.title &&
+            it.category === input.category &&
+            (it.note ?? "") === (input.note ?? "") &&
+            it.value === input.value
+          ) {
+            return { ...it };
+          }
           Object.assign(it, input);
           it.updated_at = nowIso();
           it.version_count = (it.version_count || 0) + 1;

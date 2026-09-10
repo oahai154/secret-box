@@ -588,7 +588,32 @@ impl Db {
     }
 
     /// 更新条目标题/分类/备注/内容，并创建新历史版本，返回解密后的最新条目。
+    ///
+    /// 内容与库中当前值完全一致时视为"没有改动"：不写入、不建版本、不刷新 updated_at。
+    /// 历史版本的定义是"每次修改自动留存"，没有任何修改就不该留下记录——否则连点保存
+    /// 会刷出一串内容相同的版本（保存应当是幂等的）。
     pub fn update_item(
+        &self,
+        key: &[u8],
+        id: i64,
+        title: &str,
+        category: &str,
+        note: &str,
+        value: &str,
+    ) -> Result<Item, SecretboxError> {
+        let current = self.get_item(key, id)?;
+        if current.title == title
+            && current.category == category
+            && current.note == note
+            && current.value == value
+        {
+            return Ok(current);
+        }
+        self.write_item(key, id, title, category, note, value)
+    }
+
+    /// 写路径本体：落一条历史版本并更新当前行（不做"内容未变"判断，供更新与还原共用）。
+    fn write_item(
         &self,
         key: &[u8],
         id: i64,
@@ -669,6 +694,9 @@ impl Db {
 
     /// 恢复历史版本：把指定版本的快照内容作为新修改写入条目（与 Go 版 handleRestore 一致，
     /// 会产生一个新版本记录）。保留条目当前的标题/分类/备注，返回恢复后的最新条目。
+    ///
+    /// 走 write_item 而非 update_item：还原是用户显式确认的写操作，确认框已如实承诺
+    /// "会生成一条新的修改记录"，因此即使快照内容与当前一致也要留下记录，不能静默变成空操作。
     pub fn restore_version(
         &self,
         key: &[u8],
@@ -677,7 +705,7 @@ impl Db {
     ) -> Result<Item, SecretboxError> {
         let content = self.get_version_snapshot(key, secret_id, version)?;
         let item = self.get_item(key, secret_id)?;
-        self.update_item(key, secret_id, &item.title, &item.category, &item.note, &content)
+        self.write_item(key, secret_id, &item.title, &item.category, &item.note, &content)
     }
 
     // ---------- 快照导出 / 导入 / 清除痕迹（与 Go 版 GetSnapshot/RestoreFromSnapshot/Wipe 对齐） ----------

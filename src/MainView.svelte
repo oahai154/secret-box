@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import { ipc, type Item, type Settings, type Version } from "./ipc";
   import ConfirmModal from "./ConfirmModal.svelte";
   import VerifyModal from "./VerifyModal.svelte";
@@ -34,6 +35,36 @@
   let categoryOpen = $state(false);
   /** 正在"查看"的历史版本号（null 表示显示当前内容） */
   let viewingVersion = $state<number | null>(null);
+
+  /** 编辑器可改动字段的快照，用于判断"有没有真的改动" */
+  type Draft = { title: string; category: string; note: string; value: string };
+
+  // 标题按 trim 后比对：后端只接收 trim 过的标题，仅补空格不算改动
+  function draftOf(it: Item | null): Draft {
+    return {
+      title: (it?.title ?? "").trim(),
+      category: it?.category ?? "",
+      note: it?.note ?? "",
+      value: it?.value ?? "",
+    };
+  }
+
+  /** 载入/保存时的内容基线：与当前内容一致即"无改动"，不保存（保存幂等，不刷历史版本） */
+  let baseline = $state<Draft | null>(null);
+
+  const dirty = $derived.by(() => {
+    if (!detail || !baseline) return false;
+    const now = draftOf(detail);
+    return (
+      now.title !== baseline.title ||
+      now.category !== baseline.category ||
+      now.note !== baseline.note ||
+      now.value !== baseline.value
+    );
+  });
+
+  // 标题为空或内容无改动时保存按钮置灰（置灰的理由由 Ctrl+S 的提示兜底说明）
+  const canSave = $derived(!!detail && dirty && detail.title.trim().length > 0);
 
   // 弹窗状态：确认弹窗与主密码验证弹窗由待执行动作驱动
   let confirmAction = $state<{
@@ -115,6 +146,7 @@
       it.value = it.value ?? "";
       it.note = it.note ?? "";
       detail = it;
+      baseline = draftOf(it);
       versions = vs;
     } catch (e) {
       onToast(typeof e === "string" ? e : String(e), "err");
@@ -125,6 +157,7 @@
     currentId = null;
     creating = false;
     detail = null;
+    baseline = null;
     versions = [];
   }
 
@@ -133,7 +166,9 @@
     // 清空编辑区，进入"新增"模式
     creating = true;
     currentId = null;
-    valueVisible = false;
+    // 新条目还没有任何秘密可藏，直接以"显示"态开场：否则点「点击显示」看不出任何变化
+    // （空内容在两种状态下渲染完全一样），用户会以为按钮坏了、也搞不清能不能输入。
+    valueVisible = true;
     viewingVersion = null;
     detail = {
       id: 0,
@@ -145,6 +180,7 @@
       value: "",
       version_count: 0,
     };
+    baseline = draftOf(detail);
     versions = [];
     titleInput?.focus();
   }
@@ -154,6 +190,11 @@
     const title = detail.title.trim();
     if (!title) {
       onToast("标题不能为空", "err");
+      return;
+    }
+    // 内容没有改动就不写库：按钮已置灰，这里兜住 Ctrl+S 等所有路径
+    if (!dirty) {
+      onToast("内容未变化,无需保存");
       return;
     }
     const input = {
@@ -175,6 +216,8 @@
       items = await ipc.listItems();
       detail = await ipc.getItem(currentId!);
       versions = await ipc.listVersions(currentId!);
+      // 落库后的内容成为新基线：按钮回到"无改动"的置灰态
+      baseline = draftOf(detail);
     } catch (e) {
       onToast(typeof e === "string" ? e : String(e), "err");
     }
@@ -251,6 +294,8 @@
           viewingVersion = null;
           items = await ipc.listItems();
           versions = await ipc.listVersions(currentId!);
+          // 还原后的内容已是库中内容：基线跟着走，否则保存按钮会一直亮着并谎报"已记录新版本"
+          baseline = draftOf(detail);
           onToast("已还原到 v" + version);
         } catch (e) {
           onToast(typeof e === "string" ? e : String(e), "err");
@@ -291,8 +336,32 @@
   }
 
   // ---------- 保密内容显示/隐藏 ----------
+  // 隐藏态不把明文放进 DOM（保持原有约定），改用掩码提示"这里有内容且被锁着"。
+  // 掩码长度固定、不随真实长度变化，避免泄露口令长度。
+  const VALUE_MASK = "●●●●●●●●";
+
+  // 占位文案随状态变化：原先两态共用一句"点击「点击显示」查看保密内容…"，
+  // 内容为空时两种状态渲染完全一样，切了也看不出变化，正是"点了像没点"的根源。
+  const valuePlaceholder = $derived(
+    valueVisible
+      ? "输入保密内容…"
+      : detail?.value
+        ? `${VALUE_MASK} 已隐藏,点击这里或「点击显示」查看并编辑`
+        : "点击这里或「点击显示」后可输入…",
+  );
+
   function toggleValue() {
     valueVisible = !valueVisible;
+  }
+
+  // 点击隐藏态的保密内容区就展开并聚焦。隐藏态此前是"看着像输入框、其实点不动"的死区
+  // （pointer-events:none + tabindex=-1）：既不接受输入，也不给任何反馈，最误导人。
+  async function revealValue() {
+    if (valueVisible) return;
+    valueVisible = true;
+    // 等只读态真正切成可编辑后再聚焦，否则可能聚焦到旧节点、输入落空
+    await tick();
+    valueEl?.focus();
   }
 
   // 文本框按内容自动调整高度（配合 CSS 的 min-height）。
@@ -623,8 +692,14 @@
                   <div class="value-toggle-bar">
                     <button id="toggleValueBtn" class="btn btn-ghost btn-sm" type="button" onclick={toggleValue}>
                       <svg class="eye-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                        <circle cx="12" cy="12" r="3" />
+                        {#if valueVisible}
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                          <circle cx="12" cy="12" r="3" />
+                        {:else}
+                          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+                          <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                          <line x1="1" y1="1" x2="23" y2="23" />
+                        {/if}
                       </svg>
                       <span class="toggle-text">{valueVisible ? "点击隐藏" : "点击显示"}</span>
                     </button>
@@ -634,11 +709,13 @@
                   id="itemValue"
                   rows={1}
                   bind:this={valueEl}
+                  readonly={!valueVisible}
                   class={valueVisible ? "value-visible" : "value-hidden"}
-                  placeholder="点击「点击显示」查看保密内容…"
+                  placeholder={valuePlaceholder}
                   spellcheck="false"
                   tabindex={valueVisible ? 0 : -1}
                   value={valueVisible ? (detail?.value ?? "") : ""}
+                  onclick={revealValue}
                   oninput={(e) => {
                     if (detail) detail.value = e.currentTarget.value;
                   }}
@@ -663,7 +740,7 @@
               <div class="editor-divider"></div>
 
               <div class="editor-actions">
-                <button id="saveBtn" class="btn btn-primary" onclick={save}>💾 保存</button>
+                <button id="saveBtn" class="btn btn-primary" disabled={!canSave} onclick={save}>💾 保存</button>
                 <button id="deleteBtn" class="btn btn-danger" onclick={remove}>🗑 删除</button>
                 <span class="spacer"></span>
                 <span class="hint-hk">Ctrl + S 快速保存</span>

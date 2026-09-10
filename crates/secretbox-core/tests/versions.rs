@@ -13,6 +13,40 @@ fn 恢复与删除版本的核心语义() {
     run_history_flow(&db, &key);
 }
 
+/// 保存幂等：内容与当前值完全一致时不写入、不建版本、不刷新 updated_at。
+/// 历史版本的定义是"条目每次修改自动留存"，没有修改就不该留下记录。
+#[test]
+fn 内容未改动时不产生新版本() {
+    let (db, key, _tmp) = setup();
+    // 公司邮箱（id=2）在 fixture 中有 3 个版本
+    assert_eq!(db.list_versions(2).unwrap().len(), 3);
+
+    let before = db.get_item(&key, 2).unwrap();
+    let again = db
+        .update_item(&key, 2, &before.title, &before.category, &before.note, &before.value)
+        .expect("原样保存应成功返回");
+
+    assert_eq!(again.value, before.value);
+    assert_eq!(again.updated_at, before.updated_at, "未改动不应刷新修改时间");
+    assert_eq!(
+        db.list_versions(2).unwrap().len(),
+        3,
+        "未改动不应产生新版本"
+    );
+
+    // 改任何一个字段都会正常产生新版本
+    let changed = format!("{}-已改", before.value);
+    let saved = db
+        .update_item(&key, 2, &before.title, &before.category, &before.note, &changed)
+        .unwrap();
+    assert_eq!(saved.value, changed);
+    assert_eq!(db.list_versions(2).unwrap().len(), 4);
+    assert_ne!(saved.updated_at, before.updated_at);
+
+    // 不存在的条目仍报"条目不存在"（守卫不能把错误吞掉）
+    assert!(db.update_item(&key, 999, "t", "", "", "v").is_err());
+}
+
 /// 复制 fixture 并解锁，返回 (数据库, 密钥, 数据库路径)。
 fn setup() -> (Db, Vec<u8>, std::path::PathBuf) {
     let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/golden.db");

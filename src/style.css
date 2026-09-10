@@ -506,15 +506,16 @@ button { font-family: inherit; }
   align-items: center;
   margin-bottom: 10px;
 }
+/* 隐藏态用只读 + 手型光标表达"不可编辑、点一下可展开"；
+   绝不能再用 pointer-events:none——那会让输入框变成看着能点、实际点不动的死区。 */
 .value-hidden {
   user-select: none;
-  pointer-events: none;
-  transition: filter var(--transition-base), opacity var(--transition-base);
+  cursor: pointer;
+  transition: border-color var(--transition-base), box-shadow var(--transition-base);
 }
 .value-visible {
-  filter: none;
   user-select: auto;
-  pointer-events: auto;
+  cursor: text;
   opacity: 1;
 }
 
